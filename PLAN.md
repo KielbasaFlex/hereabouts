@@ -600,7 +600,7 @@ Structured logging (pino) of source→result and rank→decision, as the brief r
 | 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Done, with caveats — see below |
 | 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Done, with caveats — see below |
 | 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers | Done, with caveats — see below |
-| 7 | Native-readiness | Written review of what Capacitor needs; spike proving background location + audio against unmodified `packages/core` | Not started |
+| 7 | Native-readiness | Written review of what Capacitor needs; spike proving background location + audio against unmodified `packages/core` | Done, with caveats — see below |
 
 **Milestone 1 caveat:** the Wikipedia adapter is built and unit-tested against hand-authored
 fixtures, not a verified live response — this environment's egress proxy still refuses
@@ -901,6 +901,72 @@ MVP acceptance (§14) is evaluated at the end of M5; M6–M7 are productisation.
   in-memory**, not migrated into the new Postgres layer — this milestone's
   persistence work is scoped to the account/billing tables Commerce
   actually needs, not a retroactive migration of the content pipeline.
+
+**Milestone 7 caveats:**
+
+- **The written review lives in `NATIVE_READINESS.md`** at the repo root,
+  not inline here — it's long enough (architecture, per-platform
+  permissions/config, App Store/Play Store review-risk, an effort/risk
+  table) to warrant its own file, the same way `SOURCES.md` split out from
+  this one.
+- **`packages/core` needed zero modifications.** The spike (`apps/native`)
+  implements the existing `PositionSource` interface twice — once for
+  foreground-only location (`@capacitor/geolocation`) and once for real
+  background tracking (`@capacitor-community/background-geolocation`) —
+  and a new `PlaybackSink` interface once, for native TTS
+  (`@capacitor-community/text-to-speech`). `PlaybackSink` itself is a small
+  extraction, not new design: it's `apps/web/src/speech.ts`'s existing
+  `SpeechController` interface moved into `packages/core/src/playback/`
+  alongside `PositionSource`/`Clock`, with `apps/web` re-exporting it as a
+  type alias — confirmed zero-behavior-change by grepping every call site
+  before moving it, and by both packages' full test suites still passing
+  unchanged afterward.
+- **Real dependency versions, not guessed ones.** The first pass at
+  `apps/native/package.json` pinned Capacitor to a guessed major (v6);
+  `pnpm install` immediately surfaced a real peer-dependency conflict
+  (`@capacitor-community/text-to-speech` needs `@capacitor/core@>=7`).
+  Querying the npm registry directly showed the real current major is 8;
+  every dependency here is pinned to it, and installs clean.
+- **Real TypeScript compilation against the plugins' actual installed
+  `.d.ts` files**, not recalled API shapes — this caught, for instance,
+  that `@capacitor-community/text-to-speech`'s real API has no
+  pause/resume primitive (only `speak`/`stop`), which
+  `CapacitorSpeechController.resume()` documents as a no-op rather than
+  quietly faking. 21 unit tests exercise the three adapters' mapping logic
+  (Capacitor's position/location shape → `PositionFix`; the TTS plugin's
+  call sequence) against fake-but-realistic plugin objects — the same
+  dependency-injection pattern this project has used for every adapter
+  since Milestone 1.
+- **A real `npx cap init` and `npx cap add android` were run**, not
+  simulated — genuine Capacitor CLI 8.5.2 scaffolding a real ~700KB Gradle
+  Android Studio project (committed at `apps/native/android/`) that
+  correctly auto-discovered all 5 native plugins this package depends on.
+- **No compiled/running native build exists**, and the reason is precisely
+  located, not assumed: this environment has Java 21 and Gradle installed
+  and working, but no Android SDK (`ANDROID_HOME` unset, no `sdkmanager`
+  anywhere), and running the generated project's own `./gradlew tasks` for
+  real got as far as downloading and booting Gradle 8.14.3
+  (`services.gradle.org` is reachable) before failing with an **HTTP 403**
+  resolving the Android Gradle Plugin from `dl.google.com` — the same
+  egress-proxy treatment §16.1 already documents for Wikipedia/Wikidata/
+  Overpass/OSRM/Stripe/OpenAI/ElevenLabs. iOS has no verification at all:
+  this environment is Linux, and an iOS build needs Xcode on macOS, which
+  doesn't exist here in any form.
+- **No real device/emulator behavior has been observed.** Whether
+  background location keeps delivering fixes with the screen locked, and
+  whether `category: "playback"` audio actually survives backgrounding, are
+  both asserted from each plugin's own documentation (and, for the
+  audio-survives-lock-screen claim generally, from Milestone 5's own
+  `<audio>`-element finding — §10), not observed on a device.
+- See `apps/native/README.md` for the full verified/unverified breakdown
+  and the concrete next steps once a real Android SDK or macOS+Xcode
+  environment is available.
+
+This is the last milestone in this table. Milestone 7 completes PLAN.md's
+originally planned build; further work (a real native build, iOS, wiring
+`apps/web`'s bundle into `apps/native`, the MVP-acceptance automation
+flagged in Milestone 5's caveats) is genuine follow-up work, not something
+silently treated as done.
 
 ---
 

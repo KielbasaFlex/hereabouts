@@ -1,0 +1,27 @@
+{
+  "name": "@hereabouts/native",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor-community/text-to-speech": "^8.0.2",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/geolocation": "^8.0.0",
+    "@capacitor/local-notifications": "^8.0.0",
+    "@hereabouts/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -17,7 +17,8 @@
     "./grounding": "./src/grounding/index.ts",
     "./topics": "./src/topics/index.ts",
     "./corridor": "./src/corridor/index.ts",
-    "./tiles": "./src/tiles/index.ts"
+    "./tiles": "./src/tiles/index.ts",
+    "./playback": "./src/playback/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

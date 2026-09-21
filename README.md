@@ -3,11 +3,31 @@
 A geolocated history tour app that narrates the history of wherever you are, continuously, as
 you walk, bike, or drive.
 
-Start with [`PLAN.md`](./PLAN.md) (architecture, stack, milestones) and
-[`SOURCES.md`](./SOURCES.md) (content-source API/licence verification). Both are living
-documents, kept current as decisions are made.
+Start with [`PLAN.md`](./PLAN.md) (architecture, stack, milestones),
+[`SOURCES.md`](./SOURCES.md) (content-source API/licence verification), and
+[`NATIVE_READINESS.md`](./NATIVE_READINESS.md) (Milestone 7's Capacitor
+review). All three are living documents, kept current as decisions are made.
 
 ## Status
+
+**Milestone 7: native-readiness — the last milestone in PLAN.md's table.**
+`apps/native` is a real spike proving Capacitor can wrap this app without
+touching `packages/core`: it implements the existing `PositionSource`
+interface twice (foreground `@capacitor/geolocation`, background
+`@capacitor-community/background-geolocation`) and a new `PlaybackSink`
+interface (extracted from `apps/web/src/speech.ts` into
+`packages/core/src/playback/`, a zero-behavior-change move) once, for
+native TTS (`@capacitor-community/text-to-speech`), plus a local
+notifications wrapper. All three adapters typecheck against
+`packages/core`'s real, unmodified interfaces and their mapping/lifecycle
+logic is covered by 21 unit tests. A real `npx cap add android` scaffolded
+a real Android Gradle project that correctly discovered all 5 native
+plugins; running its own `./gradlew tasks` for real got as far as
+downloading and booting Gradle before failing at one precisely identified
+point (`dl.google.com` returning 403 — see below). See
+`NATIVE_READINESS.md` for the full written review and
+`apps/native/README.md` for the spike's exact verified/unverified
+boundary.
 
 **Milestone 6: commerce.** On top of Milestone 5's offline packs, the app now has real accounts,
 billing, and tiered limits: `packages/db` (Drizzle + Postgres) persists users, sessions,
@@ -54,6 +74,11 @@ its Milestone 6 caveats section for exactly what's simplified or unverified.
   system — see `PLAN.md`'s Milestone 6 caveats.
 - **MVP acceptance criteria #1–#3 (§14) remain unautomated** — only #4 (route-pack offline
   playback, from Milestone 5) has a dedicated, repeatable check behind it from this build.
+- **No compiled/running native build exists.** This environment has no Android SDK (and the
+  host `sdkmanager` would need to download components from is blocked — `dl.google.com`
+  returns 403) and no macOS/Xcode for iOS at all. `apps/native`'s adapters are real,
+  typechecked, and unit-tested against `packages/core`'s unmodified interfaces, but no native
+  binary has ever been built or run. See `NATIVE_READINESS.md`.
 
 **What *has* been verified, live, against the real (blocked) network — and, new this milestone,
 against real local infrastructure:** with all three live feed sources correctly failing and being
@@ -144,7 +169,7 @@ packages/
   core/         # pure domain logic: geometry, mode detection, H3 cell rounding, dedup/
                 # clustering, ranking, spatial-frame classification, grounding validators,
                 # topic classification, corridor sampling, PMTiles tile-coordinate math,
-                # GPX simulator. No I/O.
+                # GPX simulator, PositionSource/Clock/PlaybackSink platform interfaces. No I/O.
   contracts/    # shared zod schemas (PlaceEvent, /feed, Story, Route, RoutePack, ...)
   db/           # Drizzle schema + migrations: users, sessions, subscriptions, tier_limits,
                 # usage_events. The only Postgres-backed package so far (Milestone 6).
@@ -164,6 +189,9 @@ apps/
   api/          # Hono server: POST /feed, /story, /route-pack, /auth/*, /billing/*, /tts, GET /me
   web/          # Vite + React app: live/simulated position, mode detection, narration, offline
                 # route packs (IndexedDB + service worker), account/billing UI
+  native/       # Milestone 7 spike: Capacitor adapters (background geolocation, native TTS,
+                # local notifications) implementing packages/core's unmodified interfaces, plus
+                # a real (uncompiled — see NATIVE_READINESS.md) Android project scaffold
 tracks/         # sample GPX tracks for the GPS simulator and for track-based route packs
 ```
 
@@ -195,3 +223,8 @@ TTS) are blocked the same way. `accounts.google.com`, `oauth2.googleapis.com`, `
 `api.github.com` (Milestone 6's OAuth) are a genuinely different case — all four are reachable —
 see `SOURCES.md`'s Milestone 6 update and `services/auth/fixtures/README.md` for what's still
 missing (a registered OAuth app, not network access).
+
+`dl.google.com` (Milestone 7's Android build — the Android Gradle Plugin is published there) is
+blocked the same 403-at-CONNECT way. `services.gradle.org` and `maven.google.com` are both
+reachable, which is how far a real `./gradlew tasks` run got before failing — see
+`NATIVE_READINESS.md` and `apps/native/README.md`.

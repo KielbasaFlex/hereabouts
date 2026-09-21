@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hereabouts</string>
+    <string name="title_activity_main">Hereabouts</string>
+    <string name="package_name">com.hereabouts.app</string>
+    <string name="custom_url_scheme">com.hereabouts.app</string>
+</resources>

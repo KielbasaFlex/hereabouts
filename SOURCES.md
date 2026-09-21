@@ -90,6 +90,15 @@ startable and used for real, live-verified integration tests throughout `package
 database/cache usage in this project, and a meaningfully higher confidence bar than the
 fixture-based verification every other source in this document has needed.
 
+**Update from Milestone 7:** this isn't a content source, but the same egress-allowlist logic
+applies to Milestone 7's Android build attempt. `dl.google.com` — where the Android Gradle
+Plugin and Google's Maven artifacts are published — gets the same 403-at-CONNECT treatment as
+every blocked host above. Two related hosts are **reachable**, though: `services.gradle.org`
+(Gradle itself downloads and boots fine) and `maven.google.com` (a 301, not a block). Java 21
+and Gradle are natively installed in this sandbox; no Android SDK is. See `NATIVE_READINESS.md`
+and `apps/native/README.md` for what a real `./gradlew tasks` run against the generated Android
+project got through before failing at exactly this host.
+
 ---
 
 ## 1. Wikipedia — GeoSearch + Extracts

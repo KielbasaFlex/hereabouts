@@ -1,16 +1,13 @@
+import type { PlaybackSink } from "@hereabouts/core/playback";
+
 /**
  * Thin wrapper over the Web Speech API — the free-tier voice (PLAN.md §9).
- * Server-side premium TTS (Milestone 6) sits behind this same interface
- * later, choosing an audio-element-based implementation instead; nothing
- * that calls `SpeechController` needs to change.
+ * `SpeechController` is a type alias for `packages/core`'s platform-agnostic
+ * `PlaybackSink` interface: a native TTS plugin (`apps/native`, Milestone 7)
+ * implements the same interface, so nothing that calls `SpeechController`
+ * needs to change when the audio sink is swapped for a native one.
  */
-export interface SpeechController {
-  isSupported(): boolean;
-  speak(text: string, onEnd?: () => void): void;
-  pause(): void;
-  resume(): void;
-  cancel(): void;
-}
+export type SpeechController = PlaybackSink;
 
 export function createSpeechController(): SpeechController {
   const supported = typeof window !== "undefined" && "speechSynthesis" in window;
