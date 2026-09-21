@@ -331,6 +331,68 @@ select {
   flex-wrap: wrap;
 }
 
+.account-panel {
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.account-panel__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.account-panel__mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.account-panel__mode-toggle button:disabled {
+  font-weight: 600;
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.account-panel__form input {
+  font-size: 1rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.account-panel__note {
+  margin: 0;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.account-panel__identity,
+.account-panel__limits {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.account-panel__limits {
+  opacity: 0.75;
+}
+
+.account-panel__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.app__notice-banner {
+  margin: 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, #b3261e 12%, transparent);
+  font-size: 0.85rem;
+}
+
 .app__offline-status {
   margin: 0;
   font-size: 0.85rem;

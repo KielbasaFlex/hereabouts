@@ -1,0 +1,7 @@
+{
+  "access_token": "ya29.sample-access-token",
+  "token_type": "Bearer",
+  "expires_in": 3599,
+  "scope": "openid email profile",
+  "id_token": "sample.jwt.token"
+}

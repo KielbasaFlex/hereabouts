@@ -4,7 +4,10 @@ import { parseGpx, type PositionSource } from "@hereabouts/core/sim";
 import type { TopicId } from "@hereabouts/core/topics";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import { fetchRoutePack, fetchStory } from "./api";
+import * as account from "./account";
+import type { MeResponse } from "./account";
+import { fetchRoutePack, fetchStory, StoryUsageLimitError } from "./api";
+import { AccountPanel } from "./components/AccountPanel";
 import { RoutePackPanel } from "./components/RoutePackPanel";
 import { TextCard } from "./components/TextCard";
 import { TopicFilters } from "./components/TopicFilters";
@@ -68,6 +71,8 @@ export function App() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [offlinePlayback, setOfflinePlayback] = useState<{ pack: RoutePack; index: number } | null>(null);
   const [offlinePaused, setOfflinePaused] = useState(false);
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [usageLimitMessage, setUsageLimitMessage] = useState<string | null>(null);
 
   const liveSourceRef = useRef<LiveGeolocationSource | null>(null);
   const simSourceRef = useRef<SimulatedPositionSource | null>(null);
@@ -119,6 +124,50 @@ export function App() {
       .then(setDownloadedPacks)
       .catch((err) => console.warn("failed to load downloaded route packs:", err));
   }, []);
+
+  function refreshMe() {
+    account
+      .fetchMe()
+      .then(setMe)
+      .catch((err) => console.warn("failed to load account status:", err));
+  }
+
+  useEffect(refreshMe, []);
+
+  async function handleSignUp(email: string, password: string) {
+    await account.signUp(email, password);
+    refreshMe();
+  }
+
+  async function handleLogIn(email: string, password: string) {
+    await account.login(email, password);
+    refreshMe();
+  }
+
+  async function handleLogOut() {
+    await account.logout();
+    refreshMe();
+  }
+
+  // Both billing buttons redirect to a real Stripe-shaped URL from the API
+  // — never completed live in this environment (api.stripe.com is
+  // blocked; see PLAN.md's Milestone 6 caveats), but the client-side flow
+  // (call the API, redirect the browser to what it returns) is real.
+  async function handleUpgrade() {
+    try {
+      window.location.href = await account.startCheckout();
+    } catch (err) {
+      console.warn("checkout session creation failed:", err);
+    }
+  }
+
+  async function handleManageSubscription() {
+    try {
+      window.location.href = await account.startPortal();
+    } catch (err) {
+      console.warn("portal session creation failed:", err);
+    }
+  }
 
   // Milestone 5 (PLAN.md §11): downloads a route pack for one of the sample
   // tracks — batch-generated stories, ready to store in IndexedDB and play
@@ -238,11 +287,23 @@ export function App() {
           headingDeg: fix.headingDeg,
         });
         if (cancelled) return;
+        setUsageLimitMessage(null);
         setCurrentStory(story);
         speech.speak(story.narration);
       } catch (err) {
         if (cancelled) return;
-        console.warn("story generation unreachable, falling back to the raw excerpt:", err);
+        if (err instanceof StoryUsageLimitError) {
+          // Milestone 6: still never silent — falls back to the raw
+          // excerpt exactly like an unreachable /story, but tells the
+          // listener why, rather than looking like a random outage.
+          setUsageLimitMessage(
+            err.reason === "daily_cap"
+              ? "You've reached today's story limit for your plan — upgrade for unlimited stories."
+              : "Story generation is at capacity right now — showing the source excerpt instead.",
+          );
+        } else {
+          console.warn("story generation unreachable, falling back to the raw excerpt:", err);
+        }
         speech.speak(next.summary);
       } finally {
         if (!cancelled) setStoryLoading(false);
@@ -356,6 +417,17 @@ export function App() {
         <h1>Hereabouts</h1>
         <p className="app__tagline">Your friendly local guide, riding along.</p>
       </header>
+
+      <AccountPanel
+        me={me}
+        onSignUp={handleSignUp}
+        onLogIn={handleLogIn}
+        onLogOut={() => void handleLogOut()}
+        onUpgrade={() => void handleUpgrade()}
+        onManageSubscription={() => void handleManageSubscription()}
+      />
+
+      {usageLimitMessage && <p className="app__notice-banner">{usageLimitMessage}</p>}
 
       {showDrivingNotice && (
         <div className="app__notice" role="alert">

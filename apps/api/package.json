@@ -17,11 +17,18 @@
     "@hereabouts/adapter-overpass": "workspace:*",
     "@hereabouts/adapter-wikidata": "workspace:*",
     "@hereabouts/adapter-wikipedia": "workspace:*",
+    "@hereabouts/auth": "workspace:*",
+    "@hereabouts/billing": "workspace:*",
     "@hereabouts/contracts": "workspace:*",
     "@hereabouts/core": "workspace:*",
+    "@hereabouts/db": "workspace:*",
     "@hereabouts/storytelling": "workspace:*",
+    "@hereabouts/tts": "workspace:*",
     "@hono/node-server": "^1.13.0",
-    "hono": "^4.6.0"
+    "drizzle-orm": "^0.36.0",
+    "hono": "^4.6.0",
+    "ioredis": "^5.4.0",
+    "stripe": "^17.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

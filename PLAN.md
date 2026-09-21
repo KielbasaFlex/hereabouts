@@ -599,7 +599,7 @@ Structured logging (pino) of source→result and rank→decision, as the brief r
 | 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests | Done, with caveats — see below |
 | 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Done, with caveats — see below |
 | 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Done, with caveats — see below |
-| 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers | Not started |
+| 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers | Done, with caveats — see below |
 | 7 | Native-readiness | Written review of what Capacitor needs; spike proving background location + audio against unmodified `packages/core` | Not started |
 
 **Milestone 1 caveat:** the Wikipedia adapter is built and unit-tested against hand-authored
@@ -826,6 +826,81 @@ exactly the point the network block takes effect.
   silently treating "M5 is done" as "MVP acceptance is done."
 
 MVP acceptance (§14) is evaluated at the end of M5; M6–M7 are productisation.
+
+**Milestone 6 caveats:**
+
+- **This session's sandbox turned out to have a real, natively-installed
+  Postgres 16 and Redis 7** (not started by default, but startable — no
+  Docker daemon is available here, so `docker-compose.yml` itself was
+  never used). That changed this milestone's verification story
+  substantially for the better: `packages/db`'s schema/migrations,
+  `services/auth`'s sessions and password auth, `services/billing`'s
+  webhook-driven subscription updates, and the API's rate limiter/usage
+  caps are all tested against **real** Postgres and Redis instances, not
+  mocks — a first for this project. A production/CI environment still
+  needs a real Postgres + Redis of its own; nothing here is a Docker-only
+  concern that got silently dropped.
+- **Auth.js is not used, despite being named in the original brief.**
+  Auth.js's client-side pieces (CSRF-token fetching, session-cookie
+  handling) are built around its own wire protocol and typically a
+  `next-auth/react`-style client or a framework adapter — neither exists
+  for this stack (Hono API + a hand-rolled Vite/React client). Implementing
+  Auth.js's protocol by hand without that client is a real security-bug
+  risk (subtly wrong CSRF or cookie-security handling) for no benefit over
+  a small, fully-understood system built directly against this app's two
+  real credential paths. `services/auth` is that system: argon2 password
+  hashing, opaque (non-JWT) Postgres-backed sessions, real end-to-end
+  tested (see below). This is a deliberate, reasoned deviation — see
+  `services/auth/src/session.ts`'s doc comment for the full reasoning.
+- **Google/GitHub OAuth exist as URL-building and code-exchange functions
+  only** — `services/auth/src/oauth/`. Both providers' authorize/token
+  endpoints are confirmed *reachable* from this environment (unlike every
+  other paid/content API this project has tried), but completing a real
+  login needs a registered OAuth application (client id/secret) and a
+  public callback URL, neither of which exists in this sandbox. `apps/api`
+  doesn't wire up `/auth/callback/{google,github}` routes yet — only the
+  building blocks exist. See `services/auth/fixtures/README.md`.
+- **`api.stripe.com`, `api.openai.com`, and `api.elevenlabs.io` are all
+  blocked** by this environment's egress, the same 403-at-CONNECT
+  treatment as every other paid-API host tried this session.
+  `services/billing`'s checkout/portal session creation and
+  `services/tts`'s OpenAI-shaped provider are unit-tested against the real
+  SDKs' own types but have never completed a live request. **Webhook
+  signature verification is the one piece of billing verified for real**:
+  Stripe's Node SDK ships `webhooks.generateTestHeaderString` specifically
+  for constructing a real, correctly-signed test header without a network
+  call, and this session used it — including against the actual running
+  API server with a real signed payload — to prove `POST /billing/webhook`
+  correctly verifies a genuine signature, rejects a wrong one, and writes
+  a real premium subscription row into a real Postgres database purely
+  from that verified webhook. See `services/billing/fixtures/README.md`.
+- **No premium audio playback wired into the web client.** `POST /tts`
+  exists server-side with real tier gating (verified: a free-tier user
+  gets 403, a premium user's request reaches the — blocked — provider
+  call), and `LocalFileAudioStorage` is real, tested local-filesystem
+  storage standing in for object storage. But `apps/web` doesn't yet call
+  `/tts` or play back an `<audio>` element for premium users — narration
+  playback is still Web Speech API for every tier. See
+  `services/tts/fixtures/README.md`.
+- **The daily-cap/global-ceiling design uses a fixed daily window
+  (Redis `INCR`+`EXPIRE`, keyed by UTC date), not a smooth token bucket** —
+  PLAN.md §12 says "token bucket," but a fixed window is the more direct
+  fit for "N stories per day," which is what's actually being asked for; a
+  token bucket is for smoothing burst *rate*, a different problem. See
+  `apps/api/src/usage.ts`'s doc comment.
+- **Anonymous/unauthenticated traffic is covered only by the global daily
+  ceiling**, not an individual cap — there's no per-IP or per-device
+  identity to cap against without a session, and building one wasn't part
+  of this milestone's scope.
+- **No Stripe customer-creation flow of its own** — `createCheckoutSession`
+  relies on Stripe's own `customer_email`-based implicit customer creation
+  during Checkout rather than a separate `customers.create` call plus a
+  stored `stripe_customer_id` before checkout starts. Fine for a single
+  premium price point; would need revisiting for multiple tiers/add-ons.
+- **`place_event`/`coverage_cell`/`story` (PLAN.md §4.1/§4.3/§4.4) are still
+  in-memory**, not migrated into the new Postgres layer — this milestone's
+  persistence work is scoped to the account/billing tables Commerce
+  actually needs, not a retroactive migration of the content pipeline.
 
 ---
 

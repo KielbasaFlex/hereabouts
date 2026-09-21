@@ -1,11 +1,47 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { PlaceEvent, RoutePack, Story } from "@hereabouts/contracts";
+import { createDb, tierLimits, type Db } from "@hereabouts/db";
 import { InMemoryStoryCache, type StoryCache } from "@hereabouts/storytelling";
-import { describe, expect, it, vi } from "vitest";
+import type { AudioStorage, TtsProvider } from "@hereabouts/tts";
+import { sql } from "drizzle-orm";
+import type Stripe from "stripe";
+import RealStripe from "stripe";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AppDependencies, BillingDependencies, TtsDependencies } from "./app.js";
 import { createApp } from "./app.js";
 import type { FeedDependencies, FetchSourceFn } from "./feed.js";
+import type { MeResponse } from "./me.js";
+import { InMemoryRateLimiter } from "./rateLimiter.js";
 import type { RoutePackDependencies } from "./route-pack.js";
 import type { StoryDependencies } from "./story.js";
+
+const TEST_DATABASE_URL =
+  process.env.TEST_DATABASE_URL ?? "postgres://hereabouts:hereabouts@localhost:5432/hereabouts_test";
+
+let db: Db;
+
+beforeEach(async () => {
+  db = createDb(TEST_DATABASE_URL);
+  await db.execute(
+    sql`TRUNCATE TABLE usage_events, oauth_accounts, sessions, subscriptions, tier_limits, users RESTART IDENTITY CASCADE`,
+  );
+  await db.insert(tierLimits).values([
+    { tier: "free", dailyStoryCap: 20, premiumVoices: false, routePacks: false, tripLog: true },
+    { tier: "premium", dailyStoryCap: null, premiumVoices: true, routePacks: true, tripLog: true },
+  ]);
+});
+
+afterAll(async () => {
+  const client = (db as unknown as { $client: { end: () => Promise<void> } }).$client;
+  await client.end();
+});
+
+/** A cookie jar for tests that need to carry a session across requests, since `app.request` doesn't have a browser's own. */
+function extractSetCookie(res: Response): string {
+  const raw = res.headers.get("set-cookie");
+  if (!raw) throw new Error("response had no Set-Cookie header");
+  return raw.split(";")[0]!; // "hereabouts_session=<token>"
+}
 
 const SAMPLE_PLACE: PlaceEvent = {
   id: "wikipedia:1",
@@ -110,17 +146,60 @@ function noopRoutePackDeps(
   };
 }
 
+// A real Stripe instance for pure-crypto operations (webhook signature
+// verification needs no network call); tests that create checkout/portal
+// sessions override `stripe` with a fake, since those *do* call the API.
+const realStripeForCrypto = new RealStripe("sk_test_not_a_real_key");
+
+function noopBillingDeps(overrides: Partial<BillingDependencies> = {}): BillingDependencies {
+  return {
+    stripe: realStripeForCrypto as unknown as Pick<Stripe, "checkout" | "billingPortal" | "webhooks">,
+    webhookSecret: "whsec_test_secret",
+    premiumPriceId: "price_test_premium",
+    successUrl: "https://app.example.com/success",
+    cancelUrl: "https://app.example.com/cancel",
+    portalReturnUrl: "https://app.example.com/account",
+    ...overrides,
+  };
+}
+
+class InMemoryAudioStorage implements AudioStorage {
+  private readonly store = new Map<string, { bytes: Uint8Array; contentType: string }>();
+  async put(key: string, bytes: Uint8Array, contentType: string) {
+    this.store.set(key, { bytes, contentType });
+    return { url: `/audio/${key}` };
+  }
+  async get(key: string) {
+    return this.store.get(key) ?? null;
+  }
+}
+
+function noopTtsDeps(overrides: Partial<TtsDependencies> = {}): TtsDependencies {
+  const provider: TtsProvider = {
+    synthesize: vi.fn(async () => ({ audioBytes: new Uint8Array([1, 2, 3]), contentType: "audio/mpeg" })),
+  };
+  return { provider, storage: new InMemoryAudioStorage(), voice: "alloy", ...overrides };
+}
+
 function testApp(
   overrides: {
     feed?: Partial<FeedDependencies>;
     story?: Partial<StoryDependencies>;
     routePack?: Partial<Omit<RoutePackDependencies, "feed">> & { feed?: Partial<FeedDependencies> };
+    billing?: Partial<BillingDependencies>;
+    tts?: Partial<TtsDependencies>;
+    rateLimiter?: AppDependencies["rateLimiter"];
   } = {},
 ) {
   return createApp({
+    db,
+    rateLimiter: overrides.rateLimiter ?? new InMemoryRateLimiter(),
+    webOrigin: "http://localhost:5173",
     feed: noopFeedDeps(overrides.feed),
     story: noopStoryDeps(overrides.story),
     routePack: noopRoutePackDeps(overrides.routePack),
+    billing: noopBillingDeps(overrides.billing),
+    tts: noopTtsDeps(overrides.tts),
   });
 }
 
@@ -459,5 +538,277 @@ describe("POST /route-pack", () => {
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("route_pack_error");
+  });
+});
+
+async function signUpAndGetCookie(app: ReturnType<typeof testApp>, email: string, password = "correct-password") {
+  const res = await app.request("/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  expect(res.status).toBe(200);
+  return extractSetCookie(res);
+}
+
+describe("POST /auth/signup", () => {
+  it("creates an account and sets a session cookie", async () => {
+    const app = testApp();
+    const res = await app.request("/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "new@example.com", password: "hunter2" }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toContain("hereabouts_session=");
+  });
+
+  it("rejects a duplicate email with 409", async () => {
+    const app = testApp();
+    await signUpAndGetCookie(app, "dup@example.com");
+    const res = await app.request("/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "dup@example.com", password: "different" }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("rejects a request missing a password with 400", async () => {
+    const app = testApp();
+    const res = await app.request("/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "x@example.com" }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /auth/login", () => {
+  it("logs in with the correct password and sets a session cookie", async () => {
+    const app = testApp();
+    await signUpAndGetCookie(app, "user@example.com", "correct-password");
+
+    const res = await app.request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "user@example.com", password: "correct-password" }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toContain("hereabouts_session=");
+  });
+
+  it("rejects an incorrect password with 401", async () => {
+    const app = testApp();
+    await signUpAndGetCookie(app, "user@example.com", "correct-password");
+
+    const res = await app.request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "user@example.com", password: "wrong" }),
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("POST /auth/logout", () => {
+  it("clears the session cookie", async () => {
+    const app = testApp();
+    const res = await app.request("/auth/logout", { method: "POST" });
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("hereabouts_session=;");
+  });
+});
+
+describe("GET /me", () => {
+  it("returns free-tier limits with no user for an anonymous caller", async () => {
+    const app = testApp();
+    const res = await app.request("/me");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as MeResponse;
+    expect(body.user).toBeNull();
+    expect(body.tier).toBe("free");
+    expect(body.limits.dailyStoryCap).toBe(20);
+  });
+
+  it("returns the logged-in user's identity and tier", async () => {
+    const app = testApp();
+    const cookie = await signUpAndGetCookie(app, "user@example.com");
+
+    const res = await app.request("/me", { headers: { Cookie: cookie } });
+    const body = (await res.json()) as MeResponse;
+    expect(body.user?.email).toBe("user@example.com");
+    expect(body.tier).toBe("free"); // no subscription row yet
+  });
+});
+
+describe("POST /billing/checkout", () => {
+  it("returns 401 for an unauthenticated caller", async () => {
+    const app = testApp();
+    const res = await app.request("/billing/checkout", { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns a checkout URL for a logged-in user", async () => {
+    const create = vi.fn(async () => ({ url: "https://checkout.stripe.com/c/pay/cs_test_123" }));
+    const fakeStripe = { checkout: { sessions: { create } } } as unknown as Pick<Stripe, "checkout" | "billingPortal" | "webhooks">;
+    const app = testApp({ billing: { stripe: fakeStripe } });
+    const cookie = await signUpAndGetCookie(app, "user@example.com");
+
+    const res = await app.request("/billing/checkout", { method: "POST", headers: { Cookie: cookie } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string };
+    expect(body.url).toBe("https://checkout.stripe.com/c/pay/cs_test_123");
+  });
+});
+
+describe("POST /billing/portal", () => {
+  it("returns 401 for an unauthenticated caller", async () => {
+    const app = testApp();
+    const res = await app.request("/billing/portal", { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the user has never started a subscription", async () => {
+    const app = testApp();
+    const cookie = await signUpAndGetCookie(app, "user@example.com");
+    const res = await app.request("/billing/portal", { method: "POST", headers: { Cookie: cookie } });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns a portal URL once a subscription row exists", async () => {
+    const create = vi.fn(async () => ({ url: "https://billing.stripe.com/p/session/abc" }));
+    const fakeStripe = { billingPortal: { sessions: { create } } } as unknown as Pick<Stripe, "checkout" | "billingPortal" | "webhooks">;
+    const app = testApp({ billing: { stripe: fakeStripe } });
+    const cookie = await signUpAndGetCookie(app, "user@example.com");
+
+    // Simulate a completed checkout having already created the subscription row.
+    const meRes = await app.request("/me", { headers: { Cookie: cookie } });
+    const userId = ((await meRes.json()) as MeResponse).user!.id;
+    const { subscriptions } = await import("@hereabouts/db");
+    await db.insert(subscriptions).values({ userId, stripeCustomerId: "cus_123", status: "active", tier: "free" });
+
+    const res = await app.request("/billing/portal", { method: "POST", headers: { Cookie: cookie } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string };
+    expect(body.url).toBe("https://billing.stripe.com/p/session/abc");
+  });
+});
+
+describe("POST /billing/webhook", () => {
+  function signedPayload(event: unknown, secret: string) {
+    const payload = JSON.stringify(event);
+    const signature = realStripeForCrypto.webhooks.generateTestHeaderString({ payload, secret });
+    return { payload, signature };
+  }
+
+  it("rejects a request with no Stripe-Signature header", async () => {
+    const app = testApp();
+    const res = await app.request("/billing/webhook", {
+      method: "POST",
+      body: JSON.stringify({ id: "evt_1", type: "checkout.session.completed" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an incorrectly signed payload", async () => {
+    const app = testApp();
+    const { payload } = signedPayload({ id: "evt_1", type: "checkout.session.completed" }, "whsec_wrong_secret");
+    const res = await app.request("/billing/webhook", {
+      method: "POST",
+      headers: { "stripe-signature": "t=1,v1=deadbeef" },
+      body: payload,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a correctly signed checkout.session.completed event and creates a premium subscription", async () => {
+    const app = testApp();
+    const cookie = await signUpAndGetCookie(app, "user@example.com");
+    const meRes = await app.request("/me", { headers: { Cookie: cookie } });
+    const userId = ((await meRes.json()) as MeResponse).user!.id;
+
+    const { payload, signature } = signedPayload(
+      {
+        id: "evt_1",
+        type: "checkout.session.completed",
+        data: { object: { client_reference_id: userId, customer: "cus_123", subscription: "sub_123" } },
+      },
+      "whsec_test_secret", // matches noopBillingDeps' default webhookSecret
+    );
+
+    const res = await app.request("/billing/webhook", {
+      method: "POST",
+      headers: { "stripe-signature": signature },
+      body: payload,
+    });
+    expect(res.status).toBe(200);
+
+    const meAfter = await app.request("/me", { headers: { Cookie: cookie } });
+    expect(((await meAfter.json()) as MeResponse).tier).toBe("premium");
+  });
+});
+
+describe("POST /tts", () => {
+  it("returns 401 for an unauthenticated caller", async () => {
+    const app = testApp();
+    const res = await app.request("/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hello" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a logged-in free-tier user", async () => {
+    const app = testApp();
+    const cookie = await signUpAndGetCookie(app, "user@example.com");
+    const res = await app.request("/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ text: "hello" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("synthesizes and serves audio for a premium user, then serves the cached copy on a repeat request", async () => {
+    const synthesize = vi.fn(async () => ({ audioBytes: new Uint8Array([9, 9, 9]), contentType: "audio/mpeg" }));
+    const app = testApp({ tts: { provider: { synthesize } } });
+    const cookie = await signUpAndGetCookie(app, "premium@example.com");
+    const meRes = await app.request("/me", { headers: { Cookie: cookie } });
+    const userId = ((await meRes.json()) as MeResponse).user!.id;
+    const { subscriptions } = await import("@hereabouts/db");
+    await db.insert(subscriptions).values({ userId, stripeCustomerId: "cus_1", status: "active", tier: "premium" });
+
+    const res = await app.request("/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ text: "hello world" }),
+    });
+    expect(res.status).toBe(200);
+    const { url } = (await res.json()) as { url: string };
+    expect(synthesize).toHaveBeenCalledTimes(1);
+
+    const audioRes = await app.request(url);
+    expect(audioRes.status).toBe(200);
+    expect(new Uint8Array(await audioRes.arrayBuffer())).toEqual(new Uint8Array([9, 9, 9]));
+
+    // Repeat request for the same text: served from cache, no second synthesis call.
+    await app.request("/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ text: "hello world" }),
+    });
+    expect(synthesize).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GET /audio/:key", () => {
+  it("returns 404 for an unknown key", async () => {
+    const app = testApp();
+    const res = await app.request("/audio/nope.mp3");
+    expect(res.status).toBe(404);
   });
 });

@@ -9,60 +9,58 @@ documents, kept current as decisions are made.
 
 ## Status
 
-**Milestone 5: offline.** On top of Milestone 4's surface, the app can now build and play back a
-fully offline route pack: `POST /route-pack` samples a route's corridor, ingests and dedupes
-places along it from the same four sources `/feed` uses, batch-generates their stories via the
-Anthropic Batches API, and computes the PMTiles tile list the corridor needs; `apps/web` downloads
-a pack into IndexedDB and plays it back — text and speech, sequentially, in route order — with the
-network fully disabled. See `PLAN.md` §15 for the full milestone list and its Milestone 5 caveats
-section for exactly what's simplified or unverified.
+**Milestone 6: commerce.** On top of Milestone 5's offline packs, the app now has real accounts,
+billing, and tiered limits: `packages/db` (Drizzle + Postgres) persists users, sessions,
+subscriptions, and configurable tier limits; `services/auth` handles email+password sign-up/log-in
+with a hand-rolled Postgres-backed session (not Auth.js — see `PLAN.md`'s Milestone 6 caveats for
+why); `services/billing` integrates the real Stripe SDK for Checkout/Portal sessions and
+cryptographically verifies webhooks; `services/tts` adds a premium TTS provider interface and
+local audio storage; and `apps/api` gates `/story`/`/route-pack` behind a real Redis-backed daily
+cap + a global generation ceiling. This sandbox happened to have a native Postgres and Redis
+available, so — for the first time in this project — the persistence and rate-limiting layers are
+verified against **real** databases, not mocks. See `PLAN.md` §15 for the full milestone list and
+its Milestone 6 caveats section for exactly what's simplified or unverified.
 
 **Known gaps (all explicitly flagged in `PLAN.md`/`SOURCES.md`, not silent):**
 
 - This environment cannot reach `en.wikipedia.org`, `query.wikidata.org`, `overpass-api.de`, or
   `router.project-osrm.org` — all four live-network adapters are fixture-tested, not verified
-  against a real response. See each adapter's `fixtures/README.md`. `/route-pack` accepts a
-  `trackId` (one of `tracks/*.gpx`'s sample tracks) as a no-network alternative to a live
-  OSRM origin/destination lookup, specifically so the rest of the offline pipeline is verifiable
-  without it.
-- NRHP has no real bulk dataset yet (can't reach the ArcGIS Hub download either, and there's no
-  Postgres to load one into) — it runs against a small, explicitly-fictional placeholder
+  against a real response. See each adapter's `fixtures/README.md`.
+- NRHP has no real bulk dataset yet — it runs against a small, explicitly-fictional placeholder
   dataset. See `services/adapters/nrhp/fixtures/README.md`.
 - The gap filler is one practical tier (nearest named settlement), not the full
   neighbourhood → city → county → state cascade `PLAN.md` §7.6 sketches.
-- **No `ANTHROPIC_API_KEY` in this environment**, so both live generation (`/story`) and batch
-  pre-generation (`/route-pack`) are verified only via unit tests against injected fakes, plus a
-  real-but-unauthenticated request proving each one's resilience path (see below) — never a real
-  model response. `api.anthropic.com` itself is *not* network-blocked; see `SOURCES.md`'s
-  Milestone 3 update.
-- The shared story cache is in-memory only — no Postgres persistence yet, so it resets on every
-  server restart, same as `/feed`'s lack of persistence in M1/M2.
-- **Topic filters classify from text, not a real category field**, and **map tiles are unreachable
-  from this environment** (OpenFreeMap, the MapLibre demo style, CARTO all blocked) — see the
-  Milestone 4 section of `PLAN.md` for both.
-- **No real PMTiles byte data is produced or served** — `packages/core/tiles` computes the real
-  tile coordinates a corridor needs, but building/hosting the `.pmtiles` archive itself is a
-  self-hosted data-pipeline step this codebase doesn't reimplement, the same posture `SOURCES.md`
-  already takes for self-hosted OSRM.
-- **No premium TTS / audio blobs** — offline playback uses the same free-tier Web Speech API as
-  live playback (no network needed once the app shell is cached); pre-rendered audio needs
-  Milestone 6's billing-gated TTS provider.
-- **Batch pre-generation makes one attempt per place**, not the live path's regenerate-once — see
-  `services/storytelling/src/batch.ts`'s own doc comment for why that's an accepted difference.
-- **The trip log is client-local (`localStorage`) only** — there's no account system yet (M6) for
-  a server-backed version to belong to, so it can't sync across devices.
-- Citation highlighting in the text card is unit-tested but has never rendered a *real* citation
-  live, since no real model response has been seen in this environment (same root cause as the
-  `ANTHROPIC_API_KEY` gap above).
+- **No `ANTHROPIC_API_KEY` in this environment**, so live generation, batch pre-generation, and
+  the eval set are verified only via unit tests against injected fakes, plus real-but-unauthenticated
+  requests proving each one's resilience path. `api.anthropic.com` itself is *not* network-blocked.
+- **`api.stripe.com`, `api.openai.com`, and `api.elevenlabs.io` are all blocked** — Stripe
+  Checkout/Portal and the OpenAI TTS provider are unit-tested against their real SDKs' types but
+  have never completed a live request. **Webhook signature verification is real, not mocked**,
+  though: this session generated a genuinely signed test webhook and sent it to the actual running
+  API, which correctly verified it and wrote a real premium subscription into a real Postgres
+  database. See `services/billing/fixtures/README.md` and `services/tts/fixtures/README.md`.
+- **Auth.js is intentionally not used** — see `PLAN.md`'s Milestone 6 caveats for the reasoning.
+  Google/GitHub OAuth exist as real, reachable-endpoint URL-building and code-exchange functions
+  (`services/auth/src/oauth/`) but aren't wired into `apps/api`'s routes yet, and can't complete a
+  real login without a registered OAuth app.
+- **The content pipeline (`place_event`/`story`/`coverage_cell`) is still in-memory** — Milestone
+  6's Postgres wiring is scoped to the account/billing tables Commerce needs, not a retroactive
+  migration of everything from earlier milestones.
+- **Topic filters classify from text, not a real category field**, and **map tiles / PMTiles byte
+  data are unreachable/unproduced in this environment** — see `PLAN.md`'s Milestone 4/5 caveats.
+- **No premium audio playback wired into the web client yet** — `/tts` exists server-side with
+  real tier gating, but `apps/web` still uses Web Speech for every tier.
+- **The trip log is still client-local (`localStorage`) only**, not yet tied to the new account
+  system — see `PLAN.md`'s Milestone 6 caveats.
 - **MVP acceptance criteria #1–#3 (§14) remain unautomated** — only #4 (route-pack offline
-  playback) has a dedicated, repeatable check behind it from this build. See `PLAN.md`'s
-  Milestone 5 caveats for exactly what that means.
+  playback, from Milestone 5) has a dedicated, repeatable check behind it from this build.
 
-**What *has* been verified, live, against the real (blocked) network:** with all three live feed
-sources correctly failing and being caught, `/feed` fell back to the local NRHP dataset and
-returned real ranked results at **HTTP 200** — not a failure. Booting the API with a real
-`new Anthropic()` client and calling `/story` and `/route-pack` both showed the SDK's own
-client-side auth check reject the request (no key configured), and both `buildStory` and
+**What *has* been verified, live, against the real (blocked) network — and, new this milestone,
+against real local infrastructure:** with all three live feed sources correctly failing and being
+caught, `/feed` fell back to the local NRHP dataset and returned real ranked results at
+**HTTP 200** — not a failure. Booting the API with a real `new Anthropic()` client and calling
+`/story` and `/route-pack` both showed the SDK's own client-side auth check reject the request (no
+key configured), and both `buildStory` and
 `generateStoriesViaBatch` correctly caught that and degraded to the grounded template fallback at
 **HTTP 200** rather than a 502. **The Milestone 5 centerpiece:** downloaded a real route pack
 through the running web app (real corridor sampling, real ingestion against the blocked sources,
@@ -72,6 +70,13 @@ worker served the cached app shell, the downloaded pack was still listed from a 
 IndexedDB read, and "Play offline" correctly drove sequential playback through the pack's stories
 in route order with **zero network requests**. That's PLAN.md §14's fourth MVP acceptance
 criterion, executed against a real browser and a real offline network condition, not a mock.
+**The Milestone 6 centerpiece:** signed up a real user through the running web app (real argon2
+password hashing, a real Postgres row, a real session cookie); generated a genuinely
+HMAC-signed Stripe webhook payload (via the Stripe SDK's own test-signature helper — real
+cryptography, not an assumption) and posted it to the live API, which verified the signature and
+wrote a real `premium` subscription row into Postgres; confirmed `/me` reflected the upgrade
+immediately; and confirmed a real Redis-backed daily story cap and global generation ceiling
+both correctly gate `/story` (unit- and integration-tested against a real Redis instance).
 
 ## Quickstart
 
@@ -90,32 +95,47 @@ To regenerate the sample GPS tracks used by the simulator (writes to both `track
 node tracks/generate.mjs
 ```
 
-### Local Postgres + PostGIS (not yet used — no persistence layer through Milestone 2)
+### Local Postgres + Redis
 
 ```bash
 docker compose up -d
 ```
 
-This also starts Redis, used by the ingestion/generation job queue from a later milestone.
+If Docker isn't available (it wasn't in the sandbox this milestone was built in — see `PLAN.md`'s
+Milestone 6 caveats), a native Postgres 16 + Redis 7 work identically; only the connection URLs
+below need to point at them.
+
+Then apply the schema and seed the default tiers (Milestone 6, `packages/db`):
+
+```bash
+export DATABASE_URL=postgres://hereabouts:hereabouts@localhost:5432/hereabouts
+pnpm --filter @hereabouts/db run db:migrate
+pnpm --filter @hereabouts/db run db:seed   # inserts the free/premium tier_limits rows
+```
 
 ### Running the app
 
 ```bash
+export DATABASE_URL=postgres://hereabouts:hereabouts@localhost:5432/hereabouts
+export REDIS_URL=redis://localhost:6379
 export ANTHROPIC_API_KEY=sk-ant-...  # optional — without it, /story degrades to the
                                       # template fallback for every request (see Status above)
+export STRIPE_SECRET_KEY=sk_test_... # optional — without it, /billing/* returns a real
+                                      # error response rather than crashing (see Status above)
 export VITE_MAP_STYLE_URL=...        # optional — overrides the map's default (dev-only) style;
                                       # see SOURCES.md's Milestone 4 update
 pnpm --filter @hereabouts/api dev    # API on :8787
 pnpm --filter @hereabouts/web dev    # web app on :5173, proxies /api to the API
 ```
 
-Open the web app, pick "Simulator" and a sample track (or "Live GPS" on a device with
-location), optionally select topic filters or turn on the trip log, and press Start. The status
-bar shows the live-detected travel mode and speed; a map shows your position and nearby
-candidates; a text card appears — read aloud automatically — whenever `/feed` finds something
-nearby, drawing on whichever sources are reachable and falling back to the regional gap filler
-otherwise. Below that, "Offline route packs" lets you download one of the sample tracks as a pack
-and play it back fully offline (try it with your network actually disabled, once downloaded).
+Open the web app, sign up or log in (Milestone 6 — optional; free-tier usage doesn't require an
+account), pick "Simulator" and a sample track (or "Live GPS" on a device with location),
+optionally select topic filters or turn on the trip log, and press Start. The status bar shows the
+live-detected travel mode and speed; a map shows your position and nearby candidates; a text card
+appears — read aloud automatically — whenever `/feed` finds something nearby, drawing on whichever
+sources are reachable and falling back to the regional gap filler otherwise. Below that, "Offline
+route packs" lets you download one of the sample tracks as a pack and play it back fully offline
+(try it with your network actually disabled, once downloaded).
 
 ## Repo layout
 
@@ -126,6 +146,8 @@ packages/
                 # topic classification, corridor sampling, PMTiles tile-coordinate math,
                 # GPX simulator. No I/O.
   contracts/    # shared zod schemas (PlaceEvent, /feed, Story, Route, RoutePack, ...)
+  db/           # Drizzle schema + migrations: users, sessions, subscriptions, tier_limits,
+                # usage_events. The only Postgres-backed package so far (Milestone 6).
 services/
   adapters/
     wikipedia/  # GeoSearch + extracts, plus fetchArticleByTitle for the gap filler
@@ -135,10 +157,13 @@ services/
     osrm/       # driving-route polyline lookup (dev-only demo server — see its fixtures/README.md)
   storytelling/ # Claude generation + citations, 3-layer grounding, shared cache, Batch API
                 # pre-generation, eval set
+  auth/         # email+password sessions (argon2 + Postgres), Google/GitHub OAuth building blocks
+  billing/      # Stripe Checkout/Portal session creation, webhook signature verification
+  tts/          # premium TTS provider interface (OpenAI-shaped) + local audio storage
 apps/
-  api/          # Hono server: POST /feed, POST /story, POST /route-pack
+  api/          # Hono server: POST /feed, /story, /route-pack, /auth/*, /billing/*, /tts, GET /me
   web/          # Vite + React app: live/simulated position, mode detection, narration, offline
-                # route packs (IndexedDB + service worker)
+                # route packs (IndexedDB + service worker), account/billing UI
 tracks/         # sample GPX tracks for the GPS simulator and for track-based route packs
 ```
 
@@ -164,3 +189,9 @@ philosophy applies for a different reason — see `SOURCES.md`'s Milestone 3 upd
 four content sources are — see `services/adapters/osrm/fixtures/README.md`. `/route-pack` also
 accepts a `trackId` instead of an origin/destination pair specifically so the rest of the offline
 pipeline can be exercised without it.
+
+`api.stripe.com`, `api.openai.com`, and `api.elevenlabs.io` (Milestone 6's billing and premium
+TTS) are blocked the same way. `accounts.google.com`, `oauth2.googleapis.com`, `github.com`, and
+`api.github.com` (Milestone 6's OAuth) are a genuinely different case — all four are reachable —
+see `SOURCES.md`'s Milestone 6 update and `services/auth/fixtures/README.md` for what's still
+missing (a registered OAuth app, not network access).

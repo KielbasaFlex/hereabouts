@@ -1,0 +1,5 @@
+{
+  "access_token": "gho_sampleaccesstoken",
+  "token_type": "bearer",
+  "scope": "read:user,user:email"
+}

@@ -72,6 +72,24 @@ data could be reached for testing corridor-tile-slicing against something real) 
 used by anything in this codebase, but recorded here in case a future milestone wants a small
 real fixture file from a public GitHub repo without needing the full egress allowlist.
 
+**Update from Milestone 6:** `api.stripe.com`, `api.openai.com`, and `api.elevenlabs.io` are all
+blocked, the same 403-at-CONNECT treatment as every other paid-API host — §12's Stripe billing
+and §9's premium TTS provider are both built and unit-tested against their real SDKs' types but
+have never completed a live request; see `services/billing/fixtures/README.md` and
+`services/tts/fixtures/README.md`. A genuinely different finding for OAuth, though:
+`accounts.google.com`, `oauth2.googleapis.com`, `github.com`, and `api.github.com` (§12's "email +
+social") are all **reachable** — real HTTP responses, not a proxy block. What's still missing for
+a complete social-login flow is a registered OAuth application (client id/secret) and a public
+callback URL, neither of which this sandboxed session has, not a network restriction. See
+`services/auth/fixtures/README.md`.
+
+Also new this milestone: **this sandbox has a natively-installed Postgres 16 and Redis 7**
+(no Docker daemon — `docker-compose.yml`'s services were never actually usable here), both
+startable and used for real, live-verified integration tests throughout `packages/db`,
+`services/auth`, `services/billing`, and `apps/api`'s rate limiter — the first real
+database/cache usage in this project, and a meaningfully higher confidence bar than the
+fixture-based verification every other source in this document has needed.
+
 ---
 
 ## 1. Wikipedia — GeoSearch + Extracts
@@ -279,6 +297,13 @@ provider's terms for cached/stored output and commercial redistribution rights b
 our whole cost model depends on persisting generated audio in object storage and serving it to
 many users, which is a licence question, not just a technical one. Recorded here so it isn't
 missed.
+
+**M6 update:** `services/tts` implements against OpenAI's `POST /v1/audio/speech` shape as the
+concrete first choice (a stable, documented request/response format), behind a `TtsProvider`
+interface an ElevenLabs implementation could satisfy just as well. **The cached/stored-output
+licence check above has not actually been done** — `api.openai.com` is blocked in this
+environment and no account exists to read the current terms against. Treat that check as still
+outstanding, not completed by this milestone's TTS code existing.
 
 ---
 

@@ -1,0 +1,5 @@
+[
+  { "email": "old@example.org", "primary": false, "verified": true },
+  { "email": "verified-primary@example.org", "primary": true, "verified": true },
+  { "email": "unverified@example.org", "primary": false, "verified": false }
+]

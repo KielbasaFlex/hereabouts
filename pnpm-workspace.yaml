@@ -3,3 +3,6 @@ packages:
   - "apps/*"
   - "services/adapters/*"
   - "services/storytelling"
+  - "services/auth"
+  - "services/billing"
+  - "services/tts"

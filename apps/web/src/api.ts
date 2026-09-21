@@ -9,6 +9,7 @@ export async function fetchFeed(request: FeedRequest, signal?: AbortSignal): Pro
   const response = await fetch(`${API_BASE_URL}/feed`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(validatedRequest),
     ...(signal ? { signal } : {}),
   });
@@ -18,6 +19,14 @@ export async function fetchFeed(request: FeedRequest, signal?: AbortSignal): Pro
   }
 
   return FeedResponse.parse(await response.json());
+}
+
+/** Thrown when `/story` returns 429 (Milestone 6's daily cap or global generation ceiling). */
+export class StoryUsageLimitError extends Error {
+  constructor(public readonly reason?: string) {
+    super(`Story generation limit reached${reason ? ` (${reason})` : ""}`);
+    this.name = "StoryUsageLimitError";
+  }
 }
 
 /**
@@ -32,10 +41,15 @@ export async function fetchStory(request: StoryRequest, signal?: AbortSignal): P
   const response = await fetch(`${API_BASE_URL}/story`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include", // a logged-in caller's tier/usage cap (Milestone 6) is read from this session cookie
     body: JSON.stringify(validatedRequest),
     ...(signal ? { signal } : {}),
   });
 
+  if (response.status === 429) {
+    const body = (await response.json().catch(() => ({}))) as { reason?: string };
+    throw new StoryUsageLimitError(body.reason);
+  }
   if (!response.ok) {
     throw new Error(`Story request failed: ${response.status} ${response.statusText}`);
   }
@@ -55,6 +69,7 @@ export async function fetchRoutePack(request: RoutePackRequest, signal?: AbortSi
   const response = await fetch(`${API_BASE_URL}/route-pack`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(validatedRequest),
     ...(signal ? { signal } : {}),
   });
