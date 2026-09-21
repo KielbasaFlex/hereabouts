@@ -1,7 +1,8 @@
-import type { PlaceEvent } from "@hereabouts/contracts";
+import type { PlaceEvent, Story } from "@hereabouts/contracts";
 import { parseGpx, type PositionSource } from "@hereabouts/core/sim";
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { fetchStory } from "./api";
 import { TextCard } from "./components/TextCard";
 import { formatMode, formatSpeed } from "./format";
 import { useFeed } from "./hooks/useFeed";
@@ -32,6 +33,8 @@ export function App() {
   const [trackLoadError, setTrackLoadError] = useState<string | null>(null);
   const [showDrivingNotice, setShowDrivingNotice] = useState(false);
   const [currentPlace, setCurrentPlace] = useState<PlaceEvent | null>(null);
+  const [currentStory, setCurrentStory] = useState<Story | null>(null);
+  const [storyLoading, setStoryLoading] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
   const liveSourceRef = useRef<LiveGeolocationSource | null>(null);
@@ -46,17 +49,48 @@ export function App() {
   );
   const speech = useMemo(() => createSpeechController(), []);
 
-  // Speak the next unheard place as soon as the feed surfaces one.
+  // As soon as the feed surfaces a new unheard place: mark it current, kick
+  // off Milestone 3 generation, and speak whatever narration is actually
+  // ready to be spoken. Generation happens once per selected place — not on
+  // every /feed poll — and never blocks "never go silent": if /story itself
+  // is unreachable, this falls back to the raw excerpt exactly as M1/M2 did.
   useEffect(() => {
     const next = feed.places[0];
-    if (next && next.id !== lastSpokenIdRef.current) {
-      lastSpokenIdRef.current = next.id;
-      setCurrentPlace(next);
-      setIsPaused(false);
-      feed.markHeard(next.id);
-      speech.speak(next.summary);
-    }
-    // Re-run whenever the feed's candidate list changes; markHeard/speech are stable.
+    if (!next || next.id === lastSpokenIdRef.current || !fix) return;
+
+    lastSpokenIdRef.current = next.id;
+    setCurrentPlace(next);
+    setCurrentStory(null);
+    setIsPaused(false);
+    feed.markHeard(next.id);
+    setStoryLoading(true);
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const story = await fetchStory({
+          place: next,
+          mode,
+          lat: fix.lat,
+          lon: fix.lon,
+          headingDeg: fix.headingDeg,
+        });
+        if (cancelled) return;
+        setCurrentStory(story);
+        speech.speak(story.narration);
+      } catch (err) {
+        if (cancelled) return;
+        console.warn("story generation unreachable, falling back to the raw excerpt:", err);
+        speech.speak(next.summary);
+      } finally {
+        if (!cancelled) setStoryLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Re-run whenever the feed's candidate list changes; markHeard/speech/mode/fix are read fresh, not deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feed.places]);
 
@@ -77,6 +111,7 @@ export function App() {
     speech.cancel();
     lastSpokenIdRef.current = null;
     setCurrentPlace(null);
+    setCurrentStory(null);
     setPositionSource(null);
     setRunning(false);
   }
@@ -140,12 +175,13 @@ export function App() {
   function handleReplay() {
     if (!currentPlace) return;
     setIsPaused(false);
-    speech.speak(currentPlace.summary);
+    speech.speak(currentStory?.narration ?? currentPlace.summary);
   }
 
   function handleSkip() {
     speech.cancel();
     setCurrentPlace(null);
+    setCurrentStory(null);
     // currentPlace's id is already marked heard; the next /feed poll
     // surfaces whatever candidate is next.
   }
@@ -248,6 +284,8 @@ export function App() {
         {currentPlace ? (
           <TextCard
             place={currentPlace}
+            story={currentStory}
+            storyLoading={storyLoading}
             isPlaying={true}
             isPaused={isPaused}
             onPlayPause={handlePlayPause}

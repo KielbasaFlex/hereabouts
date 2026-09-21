@@ -71,6 +71,7 @@ export function queryNearby(options: QueryNearbyOptions): PlaceEvent[] {
         topics: [],
         notability: estimateNotability(record),
         externalIds: { nrhpRefNumber: record.refNumber },
+        isRegional: false,
       };
     });
 }

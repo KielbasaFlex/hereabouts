@@ -222,6 +222,7 @@ export async function fetchNearbyItems(options: FetchNearbyItemsOptions): Promis
       // moderate constant until that enrichment is worth the extra call.
       notability: 0.4,
       externalIds: { wikidataQid: qid },
+      isRegional: false,
     });
   }
 

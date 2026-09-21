@@ -4,3 +4,5 @@ export * from "./cell/index.js";
 export * from "./sim/index.js";
 export * from "./dedup/index.js";
 export * from "./rank/index.js";
+export * from "./spatial-frame/index.js";
+export * from "./grounding/index.js";

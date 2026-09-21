@@ -1,4 +1,4 @@
-import type { PlaceEvent } from "@hereabouts/contracts";
+import type { PlaceEvent, Story } from "@hereabouts/contracts";
 import { formatDistance } from "../format";
 
 const LICENSE_LABELS: Record<PlaceEvent["license"], string> = {
@@ -10,6 +10,9 @@ const LICENSE_LABELS: Record<PlaceEvent["license"], string> = {
 
 export interface TextCardProps {
   place: PlaceEvent;
+  /** The Milestone 3 generated narration, once `/story` resolves. Null while loading or if it failed. */
+  story: Story | null;
+  storyLoading: boolean;
   isPlaying: boolean;
   isPaused: boolean;
   onPlayPause: () => void;
@@ -21,18 +24,29 @@ export interface TextCardProps {
  * The text card (PLAN.md §9): title, distance, narration, an expandable
  * source excerpt, source link, license attribution, and playback controls.
  *
- * `summary` (spoken and shown as the primary narration) and `sourceExcerpt`
- * (the grounding substrate, shown verbatim) are the same text for a normal
- * point-level place — adapters read raw extracts, unmodified, until
- * Milestone 3's storytelling pipeline generates real narration from them.
- * They diverge for a gap-filler place (PLAN.md §7.6): `summary` carries the
- * honest "around this part of {settlement}" framing, while `sourceExcerpt`
- * stays the pure, unedited article extract. The source-excerpt block below
- * only renders when the two actually differ, so the common case isn't
- * cluttered with an identical repeat.
+ * The primary narration is the Milestone 3 generated story once it's ready
+ * (`story.narration`); until then, or if generation failed entirely, it
+ * falls back to the place's raw `summary` — the same M1/M2 behavior,
+ * so playback is never blocked on generation succeeding. The source-excerpt
+ * block only renders when it actually differs from what's being narrated,
+ * so a fallback-to-raw-excerpt case isn't shown twice.
  */
-export function TextCard({ place, isPlaying, isPaused, onPlayPause, onSkip, onReplay }: TextCardProps) {
-  const hasDistinctExcerpt = place.sourceExcerpt !== place.summary;
+export function TextCard({
+  place,
+  story,
+  storyLoading,
+  isPlaying,
+  isPaused,
+  onPlayPause,
+  onSkip,
+  onReplay,
+}: TextCardProps) {
+  const narrationText = story?.narration ?? place.summary;
+  // The template-fallback narration already *is* the source excerpt
+  // (prefixed with the title) — showing the excerpt again in its own
+  // section would just repeat the same text twice.
+  const hasDistinctExcerpt =
+    story?.validationStatus !== "template_fallback" && place.sourceExcerpt !== narrationText;
 
   return (
     <article className="text-card">
@@ -41,10 +55,22 @@ export function TextCard({ place, isPlaying, isPaused, onPlayPause, onSkip, onRe
         <p className="text-card__distance">{formatDistance(place.distanceM)}</p>
       </header>
 
-      <p className="text-card__narration">{place.summary}</p>
-      {!hasDistinctExcerpt && (
+      <p className="text-card__narration">{narrationText}</p>
+
+      {storyLoading && <p className="text-card__narration-note">Generating narration…</p>}
+      {!storyLoading && !story && (
         <p className="text-card__narration-note">
-          Raw source excerpt — grounded, length-scaled narration arrives in Milestone 3.
+          Raw source excerpt — grounded, length-scaled narration arrives once generation completes.
+        </p>
+      )}
+      {!storyLoading && story?.validationStatus === "template_fallback" && (
+        <p className="text-card__narration-note">
+          Generated narration didn't pass grounding — showing the source excerpt directly instead.
+        </p>
+      )}
+      {!storyLoading && story?.validationStatus === "validated" && story.citations.length > 0 && (
+        <p className="text-card__citation-count">
+          {story.citations.length} cited passage{story.citations.length === 1 ? "" : "s"} from the source
         </p>
       )}
 

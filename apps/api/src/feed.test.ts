@@ -28,6 +28,7 @@ function place(id: string, source: PlaceEvent["source"], approxDistanceM: number
     topics: [],
     notability: 0.3,
     externalIds: {},
+    isRegional: false,
     ...overrides,
   };
 }

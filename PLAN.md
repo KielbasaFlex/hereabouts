@@ -596,7 +596,7 @@ Structured logging (pino) of source→result and rank→decision, as the brief r
 | 0 | Skeleton | Monorepo, CI, Postgres+PostGIS via compose, `packages/core` geo + mode with tests, GPX simulator replaying a track | Done |
 | 1 | Core loop | Live geolocation, mode detection, Wikipedia GeoSearch, raw excerpts read by browser voice, simulator drives the whole loop end-to-end | Done, with one caveat — see below |
 | 2 | Multi-source | Wikidata + Overpass + NRHP adapters, normalisation, dedup/clustering, ranking, gap-filler cascade with regional decks | Done, with caveats — see below |
-| 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests | Not started |
+| 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests | Done, with caveats — see below |
 | 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Not started |
 | 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Not started |
 | 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers | Not started |
@@ -647,6 +647,57 @@ exactly the point the network block takes effect.
   refetches live (or, for NRHP, re-filters the in-memory sample). The
   `coverage_cell` caching design (PLAN.md §4.3) stays a Milestone-3-or-later
   addition; nothing in M2 depended on it.
+
+**Milestone 3 caveats:**
+
+- **No real Anthropic API credential in this environment.** Unlike the M1/M2
+  third-party sources, `api.anthropic.com` itself is *not* blocked by the
+  egress proxy — it's in the proxy's `noProxy` list — but no
+  `ANTHROPIC_API_KEY` is configured here, so Anthropic's own auth rejects
+  every real call. Generation (`generateNarration`), the judge
+  (`judgeNarration`), and citations parsing are all verified only via unit
+  tests against an injected fake `messages` client, following the same
+  dependency-injection pattern as the M1/M2 adapters.
+- **One real, non-mocked verification was still possible:** booting the
+  actual API server with a real `new Anthropic()` client (reading
+  `ANTHROPIC_API_KEY` from the environment, which is unset) and issuing a
+  real `curl` request to `/story`. The request reaches the real SDK, whose
+  own client-side `validateHeaders` rejects it before any network round
+  trip (no API key), `buildStory`'s attempt loop correctly treats that
+  thrown error as a failed attempt, retries once, and — both attempts
+  failing the same way — degrades to the grounded template fallback,
+  returning **HTTP 200** with real narration text (the source excerpt),
+  not a 502. This proves the resilience design end-to-end against a real
+  failure mode, just not a real model *response*.
+- **The eval set (`services/storytelling/eval/`) exists but has never
+  run.** Six hand-picked fixtures stress each Layer 2 grounding check
+  individually (numeric precision, decade-vagueness, regional framing, a
+  thin-source/length-target tension case, a difficult-history voice case,
+  and a citation-heavy case) plus the Layer 3 judge, specifically to
+  compare `claude-sonnet-5`'s generation quality against
+  `claude-haiku-4-5-20251001`'s judging reliability — the two open
+  questions from the user's runtime-model resolution. `eval/run.ts` is
+  written and typechecks against the real SDK types; `eval/README.md`
+  documents exactly how to run it once a credential exists and what each
+  fixture is meant to reveal.
+- **No Postgres-backed shared cache yet.** `StoryCache` is a proper
+  interface (so swapping in a persistent implementation is not a
+  calling-code change), but `InMemoryStoryCache` is the only
+  implementation — cached narrations are lost on every server restart,
+  same limitation M1/M2 already carried for the feed itself.
+- **The gap-filler/spatial-frame interaction is handled but only
+  unit-verified:** a gap-filler `PlaceEvent`'s coordinates are a stand-in
+  settlement's, not the narrated content's, so `isRegional: true` forces
+  `apps/api/src/story.ts` to skip geometric spatial-frame computation
+  entirely and hard-code `{allow: "regional", ...}` — correct by
+  construction, but never exercised against a real gap-filler place
+  produced by a live NRHP/Wikidata lookup (M2's own live-verification gap).
+- **Verified live, end-to-end, with a real browser:** Playwright driving
+  the GPS simulator against the running web app confirms the UI correctly
+  shows the "Generating narration…" state, then the template-fallback
+  narration and its "didn't pass grounding" note, with zero console
+  errors and no silent playback gap — the same "never go silent"
+  guarantee as M1/M2, now covering the new `/story` call too.
 
 MVP acceptance (§14) is evaluated at the end of M5; M6–M7 are productisation.
 

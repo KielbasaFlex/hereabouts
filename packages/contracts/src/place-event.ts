@@ -75,5 +75,15 @@ export const PlaceEvent = z.object({
    */
   notability: z.number().min(0).max(1).default(0.3),
   externalIds: ExternalIds.default({}),
+  /**
+   * True for a gap-filler place (PLAN.md §7.6): `lat`/`lon` here are a
+   * stand-in settlement's coordinates, not the narrated content's, so
+   * Milestone 3's spatial-frame computation must not treat them
+   * geometrically — a settlement that happens to be close is still
+   * regional framing, never "right here." `services/storytelling`'s
+   * `/story` caller forces `spatialFrame: "regional"` when this is true
+   * instead of computing one from position and heading.
+   */
+  isRegional: z.boolean().default(false),
 });
 export type PlaceEvent = z.infer<typeof PlaceEvent>;

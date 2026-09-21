@@ -44,6 +44,14 @@ If allowlisting isn't possible in this environment, the fallback in `PLAN.md` §
 Claude Code, or fixture-first development with locally-recorded fixtures committed back) still
 applies — M0 needs none of these hosts and isn't waiting on this.
 
+**Update from Milestone 3:** `api.anthropic.com` (the Claude API used for narration generation
+and grounding judging, §8) is *not* blocked by this environment's egress proxy — it's already in
+the proxy's `noProxy` list, unlike the five hosts above. The remaining blocker for live
+verification of `services/storytelling` is a credential: no `ANTHROPIC_API_KEY` is configured
+here. Nothing needs to change about network policy for that piece; setting the environment
+variable is sufficient once a key exists. See `services/storytelling/eval/README.md` for exactly
+what running the eval set will verify once it does.
+
 ---
 
 ## 1. Wikipedia — GeoSearch + Extracts

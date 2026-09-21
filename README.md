@@ -9,12 +9,15 @@ documents, kept current as decisions are made.
 
 ## Status
 
-**Milestone 2: multi-source.** Four source adapters (Wikipedia, Wikidata, Overpass, NRHP) feed
-a `/feed` endpoint that clusters the same real-world place across sources, ranks candidates by
-ETA fit / ahead-ness / notability / topic affinity / novelty / source quality, and falls back to
-a nearest-settlement gap filler when nothing point-level is nearby — so the app never goes
-silent even when every live source is unreachable. See `PLAN.md` §15 for the full milestone list
-and its Milestone 2 caveats section for exactly what's simplified or unverified.
+**Milestone 3: storytelling.** On top of Milestone 2's multi-source `/feed`, a new `/story`
+endpoint (`services/storytelling`) turns a selected place into a length-scaled, grounded
+narration: Claude generates it with citations tied back to the source excerpt, three grounding
+layers check it (deterministic numerals/entities/vagueness/spatial-language/n-gram-overlap/length
+checks, then an LLM judge for unsupported claims and source-mirroring), a failed narration
+regenerates once and then degrades to an extractive template card, and successful narrations are
+cached by place/mode/prompt-version so repeat listeners don't re-pay for generation. See
+`PLAN.md` §15 for the full milestone list and its Milestone 3 caveats section for exactly what's
+simplified or unverified.
 
 **Known gaps (all explicitly flagged in `PLAN.md`/`SOURCES.md`, not silent):**
 
@@ -26,12 +29,25 @@ and its Milestone 2 caveats section for exactly what's simplified or unverified.
   dataset. See `services/adapters/nrhp/fixtures/README.md`.
 - The gap filler is one practical tier (nearest named settlement), not the full
   neighbourhood → city → county → state cascade `PLAN.md` §7.6 sketches.
+- **No `ANTHROPIC_API_KEY` in this environment**, so `services/storytelling` (generation, the
+  grounding judge, and the eval set at `services/storytelling/eval/`) is verified only via unit
+  tests against injected fakes, plus one real-but-unauthenticated request that proves the
+  resilience path (see below) — never a real model response. `api.anthropic.com` itself is *not*
+  network-blocked; see `SOURCES.md`'s Milestone 3 update.
+- The shared story cache is in-memory only — no Postgres persistence yet, so it resets on every
+  server restart, same as `/feed`'s lack of persistence in M1/M2.
 
-**What *has* been verified, live, against the real (blocked) network:** with all three live
+**What *has* been verified, live, against the real (blocked) network:** with all three live feed
 sources correctly failing and being caught, `/feed` fell back to the local NRHP dataset and
 returned real ranked results at **HTTP 200** — not a failure. At a location with nothing
-anywhere, it degraded to an empty feed, still at 200. Confirmed both via direct API calls and a
-full browser (Playwright) driving the simulator against the running web app.
+anywhere, it degraded to an empty feed, still at 200. Separately, booting the API with a real
+`new Anthropic()` client and calling `/story` showed the SDK's own client-side auth check reject
+the request (no key configured), `buildStory` correctly treat that as a failed attempt, retry
+once, and degrade to the grounded template fallback at **HTTP 200** rather than a 502 — the same
+"never fail the request" design as `/feed`, now proven against the storytelling path's own real
+failure mode. Both paths, plus the full narration UI (loading state, fallback note, citation
+count), were also confirmed via a full browser (Playwright) driving the simulator against the
+running web app.
 
 ## Quickstart
 
@@ -61,6 +77,8 @@ This also starts Redis, used by the ingestion/generation job queue from a later 
 ### Running the app
 
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...  # optional — without it, /story degrades to the
+                                      # template fallback for every request (see Status above)
 pnpm --filter @hereabouts/api dev    # API on :8787
 pnpm --filter @hereabouts/web dev    # web app on :5173, proxies /api to the API
 ```
@@ -75,16 +93,18 @@ on whichever sources are reachable and falling back to the regional gap filler o
 ```
 packages/
   core/         # pure domain logic: geometry, mode detection, H3 cell rounding, dedup/
-                # clustering, ranking, GPX simulator. No I/O.
-  contracts/    # shared zod schemas (PlaceEvent, /feed request & response)
+                # clustering, ranking, spatial-frame classification, grounding validators,
+                # GPX simulator. No I/O.
+  contracts/    # shared zod schemas (PlaceEvent, /feed request & response, Story, StoryRequest)
 services/
   adapters/
     wikipedia/  # GeoSearch + extracts, plus fetchArticleByTitle for the gap filler
     wikidata/   # SPARQL: nearby dated items, and nearest-settlement search
     overpass/   # historic=*/memorial=*/heritage=* OSM elements
     nrhp/       # local-dataset query (bulk download not yet wired — see its fixtures/README.md)
+  storytelling/ # Claude generation + citations, 3-layer grounding, shared cache, eval set
 apps/
-  api/          # Hono server: POST /feed — fetch all sources, dedup, rank, gap-fill
+  api/          # Hono server: POST /feed, POST /story
   web/          # Vite + React app: live/simulated position, mode detection, narration
 tracks/         # sample GPX tracks for the GPS simulator
 ```
@@ -101,3 +121,8 @@ of the four adapters, but not their behavior when unreachable: `/feed` is design
 whatever sources *are* up (down to the local NRHP dataset, which needs no network at all) rather
 than fail the request, and that resilience path is itself exercised by the test suites and by a
 real server boot against this exact blocked network.
+
+`api.anthropic.com` (used by `/story`) is a different case: it's reachable from this
+environment, but no `ANTHROPIC_API_KEY` is configured, so the same "degrade, don't fail"
+philosophy applies for a different reason — see `SOURCES.md`'s Milestone 3 update and
+`services/storytelling/eval/README.md`.

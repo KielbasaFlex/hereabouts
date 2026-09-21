@@ -18,6 +18,7 @@ function place(overrides: Partial<PlaceEvent> & Pick<PlaceEvent, "id" | "title">
     topics: [],
     notability: 0.3,
     externalIds: {},
+    isRegional: false,
     ...overrides,
   };
 }

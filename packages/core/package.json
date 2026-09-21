@@ -12,7 +12,9 @@
     "./cell": "./src/cell/index.ts",
     "./sim": "./src/sim/index.ts",
     "./dedup": "./src/dedup/index.ts",
-    "./rank": "./src/rank/index.ts"
+    "./rank": "./src/rank/index.ts",
+    "./spatial-frame": "./src/spatial-frame/index.ts",
+    "./grounding": "./src/grounding/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -183,6 +183,7 @@ export async function fetchNearbyPlaces(options: FetchNearbyOptions): Promise<Pl
         wikipediaTitle: result.title,
         ...(page.pageprops?.wikibase_item ? { wikidataQid: page.pageprops.wikibase_item } : {}),
       },
+      isRegional: false,
     });
   }
 
@@ -254,5 +255,10 @@ export async function fetchArticleByTitle(options: FetchArticleByTitleOptions): 
       wikipediaTitle: page.title,
       ...(page.pageprops?.wikibase_item ? { wikidataQid: page.pageprops.wikibase_item } : {}),
     },
+    // This function's only current caller is the gap filler (see the doc
+    // comment above) — the coordinates it's given are a settlement's, not
+    // the narrated content's, so Milestone 3's spatial-frame computation
+    // must treat this as regional rather than geometric.
+    isRegional: true,
   };
 }

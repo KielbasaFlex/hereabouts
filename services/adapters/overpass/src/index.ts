@@ -151,6 +151,7 @@ export async function fetchNearbyPlaces(options: FetchNearbyOptions): Promise<Pl
         ...(tags.wikidata ? { wikidataQid: tags.wikidata } : {}),
         ...(tags.wikipedia ? { wikipediaTitle: parseWikipediaTag(tags.wikipedia) } : {}),
       },
+      isRegional: false,
     });
   }
 
