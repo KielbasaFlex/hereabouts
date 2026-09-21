@@ -1,0 +1,32 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "geosearch": [
+      {
+        "pageid": 61048,
+        "ns": 0,
+        "title": "Tampa Theatre",
+        "lat": 27.9478,
+        "lon": -82.459,
+        "dist": 410.5,
+        "primary": true
+      },
+      {
+        "pageid": 65432,
+        "ns": 0,
+        "title": "Tampa City Hall",
+        "lat": 27.9482,
+        "lon": -82.4585,
+        "dist": 512.9
+      },
+      {
+        "pageid": 77654,
+        "ns": 0,
+        "title": "A Disambiguation Stub",
+        "lat": 27.949,
+        "lon": -82.458,
+        "dist": 601.2
+      }
+    ]
+  }
+}

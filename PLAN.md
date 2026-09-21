@@ -591,16 +591,24 @@ Structured logging (pino) of source→result and rank→decision, as the brief r
 
 ## 15. Milestones
 
-| # | Milestone | Exit criteria |
-|---|---|---|
-| 0 | Skeleton | Monorepo, CI, Postgres+PostGIS via compose, `packages/core` geo + mode with tests, GPX simulator replaying a track |
-| 1 | Core loop | Live geolocation, mode detection, Wikipedia GeoSearch, raw excerpts read by browser voice, simulator drives the whole loop end-to-end |
-| 2 | Multi-source | Wikidata + Overpass + NRHP adapters, normalisation, dedup/clustering, ranking, gap-filler cascade with regional decks |
-| 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests |
-| 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log |
-| 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green |
-| 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers |
-| 7 | Native-readiness | Written review of what Capacitor needs; spike proving background location + audio against unmodified `packages/core` |
+| # | Milestone | Exit criteria | Status |
+|---|---|---|---|
+| 0 | Skeleton | Monorepo, CI, Postgres+PostGIS via compose, `packages/core` geo + mode with tests, GPX simulator replaying a track | Done |
+| 1 | Core loop | Live geolocation, mode detection, Wikipedia GeoSearch, raw excerpts read by browser voice, simulator drives the whole loop end-to-end | Done, with one caveat — see below |
+| 2 | Multi-source | Wikidata + Overpass + NRHP adapters, normalisation, dedup/clustering, ranking, gap-filler cascade with regional decks | Not started |
+| 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests | Not started |
+| 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Not started |
+| 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Not started |
+| 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers | Not started |
+| 7 | Native-readiness | Written review of what Capacitor needs; spike proving background location + audio against unmodified `packages/core` | Not started |
+
+**Milestone 1 caveat:** the Wikipedia adapter is built and unit-tested against hand-authored
+fixtures, not a verified live response — this environment's egress proxy still refuses
+`en.wikipedia.org` (§16.1). Everything else — live geolocation, the mode classifier, the H3
+privacy-rounding + real-distance recomputation in the API, and the simulator driving the whole
+client loop — has been verified with a real browser (Playwright) against the running app, up to
+and including the `/feed` call reaching the API and failing gracefully (502, not a crash) at
+exactly the point the network block takes effect.
 
 MVP acceptance (§14) is evaluated at the end of M5; M6–M7 are productisation.
 

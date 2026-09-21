@@ -1,28 +1,19 @@
 {
-  "name": "@hereabouts/core",
+  "name": "@hereabouts/contracts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./geo": "./src/geo/index.ts",
-    "./mode": "./src/mode/index.ts",
-    "./cell": "./src/cell/index.ts",
-    "./sim": "./src/sim/index.ts"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "fast-xml-parser": "^4.5.0",
-    "h3-js": "^4.1.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
   }

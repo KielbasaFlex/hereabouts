@@ -1,0 +1,27 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "pages": [
+      {
+        "pageid": 61048,
+        "ns": 0,
+        "title": "Tampa Theatre",
+        "extract": "The Tampa Theatre is a historic movie palace located in downtown Tampa, Florida. It opened in 1926 and was designed in an elaborate atmospheric style, intended to evoke an outdoor Mediterranean courtyard under a starlit sky.",
+        "fullurl": "https://en.wikipedia.org/wiki/Tampa_Theatre"
+      },
+      {
+        "pageid": 65432,
+        "ns": 0,
+        "title": "Tampa City Hall",
+        "extract": "Tampa City Hall is the seat of government for the city of Tampa, Florida. Completed in 1915, it has served as the meeting place of the Tampa City Council for over a century.",
+        "fullurl": "https://en.wikipedia.org/wiki/Tampa_City_Hall"
+      },
+      {
+        "pageid": 77654,
+        "ns": 0,
+        "title": "A Disambiguation Stub",
+        "missing": false
+      }
+    ]
+  }
+}

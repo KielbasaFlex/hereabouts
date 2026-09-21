@@ -7,11 +7,15 @@
  *
  * Regenerate with: `node tracks/generate.mjs`
  */
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// The web app (apps/web) fetches these at runtime for its GPS simulator UI
+// (Vite's public/ dir is served as static files); this script is their
+// single source of truth, so both copies are always in sync.
+const WEB_PUBLIC_TRACKS_DIR = join(__dirname, "../apps/web/public/tracks");
 
 function metersToDegLat(m) {
   return m / 111_320;
@@ -108,10 +112,17 @@ const tracks = [
   },
 ];
 
+mkdirSync(WEB_PUBLIC_TRACKS_DIR, { recursive: true });
+
 for (const track of tracks) {
   const points = buildTrack(track.startLat, track.startLon, track.startTime, track.legs);
   const gpx = toGpx(track.name, points);
+
   const outPath = join(__dirname, track.file);
   writeFileSync(outPath, gpx, "utf8");
   console.log(`wrote ${outPath} (${points.length} points)`);
+
+  const webOutPath = join(WEB_PUBLIC_TRACKS_DIR, track.file);
+  writeFileSync(webOutPath, gpx, "utf8");
+  console.log(`wrote ${webOutPath} (${points.length} points)`);
 }
