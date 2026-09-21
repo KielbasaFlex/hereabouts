@@ -62,6 +62,16 @@ production, not a code change. `registry.npmjs.org` **is** reachable, for what i
 `maplibre-gl` package itself installed and built normally; only its runtime tile requests are
 blocked.
 
+**Update from Milestone 5:** confirmed `router.project-osrm.org` (the OSRM demo server, §7's
+"Routing" section) gets the same 403-at-CONNECT treatment as every other live content-source
+host — consistent with, not a surprise given, this document's own existing note that the demo
+server is dev-only and shouldn't be relied on in production anyway. Also confirmed
+`raw.githubusercontent.com` **is** reachable (unlike `cdn.jsdelivr.net`, `demo.protomaps.com`, and
+`build.protomaps.com`, all tried and blocked while investigating whether any real PMTiles sample
+data could be reached for testing corridor-tile-slicing against something real) — not currently
+used by anything in this codebase, but recorded here in case a future milestone wants a small
+real fixture file from a public GitHub repo without needing the full egress allowlist.
+
 ---
 
 ## 1. Wikipedia — GeoSearch + Extracts

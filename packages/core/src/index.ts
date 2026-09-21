@@ -7,3 +7,5 @@ export * from "./rank/index.js";
 export * from "./spatial-frame/index.js";
 export * from "./grounding/index.js";
 export * from "./topics/index.js";
+export * from "./corridor/index.js";
+export * from "./tiles/index.js";

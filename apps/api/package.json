@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
     "@hereabouts/adapter-nrhp": "workspace:*",
+    "@hereabouts/adapter-osrm": "workspace:*",
     "@hereabouts/adapter-overpass": "workspace:*",
     "@hereabouts/adapter-wikidata": "workspace:*",
     "@hereabouts/adapter-wikipedia": "workspace:*",

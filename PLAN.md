@@ -598,7 +598,7 @@ Structured logging (pino) of source→result and rank→decision, as the brief r
 | 2 | Multi-source | Wikidata + Overpass + NRHP adapters, normalisation, dedup/clustering, ranking, gap-filler cascade with regional decks | Done, with caveats — see below |
 | 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests | Done, with caveats — see below |
 | 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Done, with caveats — see below |
-| 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Not started |
+| 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Done, with caveats — see below |
 | 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers | Not started |
 | 7 | Native-readiness | Written review of what Capacitor needs; spike proving background location + audio against unmodified `packages/core` | Not started |
 
@@ -749,6 +749,81 @@ exactly the point the network block takes effect.
   fix — the main chunk dropped from 1.14 MB to 335 KB, with MapLibre's own
   ~800 KB in a separate chunk loaded only once the simulator/live tracking
   actually starts.
+
+**Milestone 5 caveats:**
+
+- **OSRM is unreachable from this environment**, the same 403-at-CONNECT
+  treatment as every other live content source (confirmed directly against
+  `router.project-osrm.org`). `services/adapters/osrm` is built and
+  fixture-tested against OSRM's long-stable, publicly documented response
+  shape (high confidence, unlike the Wikidata adapter's composed-query
+  risk), but has never made a real routing call. This is why `/route-pack`
+  accepts a `trackId` as an alternative to `origin`/`destination`: it lets
+  the whole corridor-sampling → ingest → batch-generate → tile-list
+  pipeline be built and verified for real, end-to-end, using one of
+  `tracks/*.gpx`'s sample tracks as the route polyline, without waiting on
+  OSRM access. See `services/adapters/osrm/fixtures/README.md`.
+- **No real PMTiles byte data is produced or served.** `packages/core/tiles`
+  computes the real slippy-map tile coordinates a corridor needs (verified
+  with property-based tests — the tile-math, not a memorized reference),
+  and the pack's `tiles` field carries that list, but actually building and
+  hosting the `.pmtiles` archive those coordinates point into is a
+  self-hosted data-pipeline step (`go-pmtiles`/`tippecanoe`/`planetiler`
+  against an OSM extract) — the same "this codebase doesn't reimplement the
+  infra" posture `SOURCES.md` already takes for self-hosted OSRM. Every
+  free-tier map-tile host this build tried to reach for Milestone 4's map
+  view was also blocked here, for what it's worth, so there was no live
+  tileset to test corridor-slicing against even experimentally.
+- **Batch pre-generation makes one generation attempt per place, not two.**
+  `build-story.ts`'s live path regenerates once on a failed Layer 2 check;
+  `services/storytelling/src/batch.ts` doesn't replicate that, because a
+  Batch API "retry" is a whole second batch submission with its own latency
+  profile, not a quick in-request retry — a place that fails Layer 2 in a
+  batch goes straight to the grounded template fallback. Verified live:
+  with no `ANTHROPIC_API_KEY` configured, a real `/route-pack` call against
+  the real (unauthenticated) Batches API had its submission rejected
+  client-side exactly like Milestone 3's `/story` finding, and
+  `generateStoriesViaBatch` correctly caught it and produced a real 200
+  response with template-fallback stories for every place — not a 502.
+- **No premium TTS / audio blobs.** PLAN.md §11 step 4 ("pre-render premium
+  TTS for the pack") needs a paid TTS provider that doesn't exist until
+  Milestone 6's billing — offline playback today uses the same free-tier
+  Web Speech API as live playback, which needs no network once the app
+  shell itself is cached (see below). A route pack today is text +
+  citations + a tile list + attribution, not audio.
+- **The service worker is a minimal, hand-written runtime cache** (network-
+  falling-back-to-cache for same-origin GET requests, explicitly excluding
+  `/api/*`), not a build-time precache manifest — no `vite-plugin-pwa` or
+  similar dependency was added. It only makes the app shell (HTML/JS/CSS)
+  available offline; the actual downloaded pack content lives in
+  IndexedDB, verified separately (see below).
+- **Verified live, for real, against this environment's actually-blocked
+  network and a real IndexedDB:** booted the API and web app, downloaded a
+  "downtown walk" route pack through the real UI (real corridor sampling →
+  real ingestion against the blocked live sources, gracefully degrading to
+  the local NRHP dataset exactly as `/feed` does → real batch-generation
+  attempt, gracefully degrading to template-fallback stories with no API
+  key → real tile-coordinate computation → a real pack saved to IndexedDB
+  via `fake-indexeddb`-free, actually-native `indexedDB` in a real
+  browser). Then, with Playwright's `context.setOffline(true)` — an actual
+  network cut, not a mock — reloaded the page (the service worker served
+  the cached shell with zero errors), confirmed the downloaded pack was
+  still listed (a real IndexedDB read with the network off), and pressed
+  "Play offline," which correctly drove sequential playback through the
+  pack's stories in route order with **zero network requests**. This is
+  PLAN.md §14's fourth MVP acceptance criterion, executed against a real
+  browser and a real (not simulated) offline network condition.
+- **MVP acceptance criteria #1–#3 (§14) remain unautomated.** §14 lists four
+  acceptance criteria as "executable"; only #4 (route-pack offline
+  playback, above) has an automated, repeatable check behind it from this
+  build. #1 (max silence gap < 15s / zero repeats across a full
+  `highway-drive.gpx` replay), #2 (every narrated numeral/entity maps to a
+  citation span), and #3 (walking→driving shortens stories and widens
+  look-ahead) have each been *informally* observed to hold across this
+  project's milestone-by-milestone Playwright verification, but none has a
+  dedicated automated test asserting it end-to-end. Building that suite is
+  real remaining work, not a rounding error — flagged here rather than
+  silently treating "M5 is done" as "MVP acceptance is done."
 
 MVP acceptance (§14) is evaluated at the end of M5; M6–M7 are productisation.
 

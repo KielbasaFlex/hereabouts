@@ -15,7 +15,9 @@
     "./rank": "./src/rank/index.ts",
     "./spatial-frame": "./src/spatial-frame/index.ts",
     "./grounding": "./src/grounding/index.ts",
-    "./topics": "./src/topics/index.ts"
+    "./topics": "./src/topics/index.ts",
+    "./corridor": "./src/corridor/index.ts",
+    "./tiles": "./src/tiles/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

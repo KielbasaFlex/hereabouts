@@ -1,11 +1,19 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { fetchNearbyPlaces as fetchWikipedia, fetchArticleByTitle } from "@hereabouts/adapter-wikipedia";
 import { fetchNearbyItems as fetchWikidata, fetchNearestSettlement } from "@hereabouts/adapter-wikidata";
 import { fetchNearbyPlaces as fetchOverpass } from "@hereabouts/adapter-overpass";
 import { queryNearby as fetchNrhp } from "@hereabouts/adapter-nrhp";
+import { fetchRoute } from "@hereabouts/adapter-osrm";
+import { parseGpx } from "@hereabouts/core/sim";
 import { InMemoryStoryCache } from "@hereabouts/storytelling";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TRACKS_DIR = join(__dirname, "../../../tracks");
 
 const userAgent = process.env.HEREABOUTS_USER_AGENT ?? undefined;
 
@@ -18,16 +26,28 @@ const anthropicClient = new Anthropic();
 // restarts yet — see services/storytelling/src/cache.ts's doc comment.
 const storyCache = new InMemoryStoryCache();
 
+const feedDeps = {
+  fetchWikipedia: (options) => fetchWikipedia({ ...options, ...(userAgent ? { userAgent } : {}) }),
+  fetchWikidata: (options) => fetchWikidata({ ...options, ...(userAgent ? { userAgent } : {}) }),
+  fetchOverpass: (options) => fetchOverpass({ ...options, ...(userAgent ? { userAgent } : {}) }),
+  fetchNrhp: (options) => fetchNrhp(options),
+  fetchNearestSettlement: (options) => fetchNearestSettlement({ ...options, ...(userAgent ? { userAgent } : {}) }),
+  fetchWikipediaArticle: (options) => fetchArticleByTitle({ ...options, ...(userAgent ? { userAgent } : {}) }),
+} satisfies Parameters<typeof createApp>[0]["feed"];
+
 const app = createApp({
-  feed: {
-    fetchWikipedia: (options) => fetchWikipedia({ ...options, ...(userAgent ? { userAgent } : {}) }),
-    fetchWikidata: (options) => fetchWikidata({ ...options, ...(userAgent ? { userAgent } : {}) }),
-    fetchOverpass: (options) => fetchOverpass({ ...options, ...(userAgent ? { userAgent } : {}) }),
-    fetchNrhp: (options) => fetchNrhp(options),
-    fetchNearestSettlement: (options) => fetchNearestSettlement({ ...options, ...(userAgent ? { userAgent } : {}) }),
-    fetchWikipediaArticle: (options) => fetchArticleByTitle({ ...options, ...(userAgent ? { userAgent } : {}) }),
-  },
+  feed: feedDeps,
   story: {
+    client: anthropicClient,
+    cache: storyCache,
+  },
+  routePack: {
+    feed: feedDeps,
+    fetchRoute: (options) => fetchRoute(options),
+    loadTrack: async (trackId) => {
+      const xml = await readFile(join(TRACKS_DIR, `${trackId}.gpx`), "utf8");
+      return parseGpx(xml);
+    },
     client: anthropicClient,
     cache: storyCache,
   },

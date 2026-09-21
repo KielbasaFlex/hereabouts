@@ -23,6 +23,9 @@ importers:
       '@hereabouts/adapter-nrhp':
         specifier: workspace:*
         version: link:../../services/adapters/nrhp
+      '@hereabouts/adapter-osrm':
+        specifier: workspace:*
+        version: link:../../services/adapters/osrm
       '@hereabouts/adapter-overpass':
         specifier: workspace:*
         version: link:../../services/adapters/overpass
@@ -88,6 +91,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.0
         version: 4.7.0(vite@5.4.21(@types/node@22.20.4))
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -138,6 +144,22 @@ importers:
       '@hereabouts/contracts':
         specifier: workspace:*
         version: link:../../../packages/contracts
+      '@hereabouts/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.4
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.4)
+
+  services/adapters/osrm:
+    dependencies:
       '@hereabouts/core':
         specifier: workspace:*
         version: link:../../../packages/core
@@ -1013,6 +1035,10 @@ packages:
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
+
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
 
   fast-sha256@1.3.0:
     resolution: {integrity: sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==}
@@ -1964,6 +1990,8 @@ snapshots:
       '@types/estree': 1.0.9
 
   expect-type@1.4.0: {}
+
+  fake-indexeddb@6.2.5: {}
 
   fast-sha256@1.3.0: {}
 

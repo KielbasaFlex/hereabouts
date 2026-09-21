@@ -1,4 +1,4 @@
-import { FeedRequest, FeedResponse, Story, StoryRequest } from "@hereabouts/contracts";
+import { FeedRequest, FeedResponse, RoutePack, RoutePackRequest, Story, StoryRequest } from "@hereabouts/contracts";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
@@ -41,4 +41,27 @@ export async function fetchStory(request: StoryRequest, signal?: AbortSignal): P
   }
 
   return Story.parse(await response.json());
+}
+
+/**
+ * Calls `POST /route-pack` (Milestone 5, PLAN.md §11) — building a pack is
+ * slow (a Batch API round trip across every place along the corridor), so
+ * this is only called when the user explicitly asks to download a pack for
+ * offline use, never automatically.
+ */
+export async function fetchRoutePack(request: RoutePackRequest, signal?: AbortSignal): Promise<RoutePack> {
+  const validatedRequest = RoutePackRequest.parse(request);
+
+  const response = await fetch(`${API_BASE_URL}/route-pack`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(validatedRequest),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Route pack request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return RoutePack.parse(await response.json());
 }

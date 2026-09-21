@@ -9,56 +9,69 @@ documents, kept current as decisions are made.
 
 ## Status
 
-**Milestone 4: surface.** On top of Milestone 3's `/story` generation, the web app now has topic
-filters (a real classifier, not a stub — see below), a MapLibre map view of the live/simulated
-position and nearby candidates, citation highlighting in the text card's expandable source
-excerpt, and a client-local trip log with JSON/GeoJSON export and a hard delete. See `PLAN.md`
-§15 for the full milestone list and its Milestone 4 caveats section for exactly what's simplified
-or unverified.
+**Milestone 5: offline.** On top of Milestone 4's surface, the app can now build and play back a
+fully offline route pack: `POST /route-pack` samples a route's corridor, ingests and dedupes
+places along it from the same four sources `/feed` uses, batch-generates their stories via the
+Anthropic Batches API, and computes the PMTiles tile list the corridor needs; `apps/web` downloads
+a pack into IndexedDB and plays it back — text and speech, sequentially, in route order — with the
+network fully disabled. See `PLAN.md` §15 for the full milestone list and its Milestone 5 caveats
+section for exactly what's simplified or unverified.
 
 **Known gaps (all explicitly flagged in `PLAN.md`/`SOURCES.md`, not silent):**
 
-- This environment cannot reach `en.wikipedia.org`, `query.wikidata.org`, or
-  `overpass-api.de` — all three live-network adapters are fixture-tested, not verified against
-  a real response. See each adapter's `fixtures/README.md`.
+- This environment cannot reach `en.wikipedia.org`, `query.wikidata.org`, `overpass-api.de`, or
+  `router.project-osrm.org` — all four live-network adapters are fixture-tested, not verified
+  against a real response. See each adapter's `fixtures/README.md`. `/route-pack` accepts a
+  `trackId` (one of `tracks/*.gpx`'s sample tracks) as a no-network alternative to a live
+  OSRM origin/destination lookup, specifically so the rest of the offline pipeline is verifiable
+  without it.
 - NRHP has no real bulk dataset yet (can't reach the ArcGIS Hub download either, and there's no
   Postgres to load one into) — it runs against a small, explicitly-fictional placeholder
   dataset. See `services/adapters/nrhp/fixtures/README.md`.
 - The gap filler is one practical tier (nearest named settlement), not the full
   neighbourhood → city → county → state cascade `PLAN.md` §7.6 sketches.
-- **No `ANTHROPIC_API_KEY` in this environment**, so `services/storytelling` (generation, the
-  grounding judge, and the eval set at `services/storytelling/eval/`) is verified only via unit
-  tests against injected fakes, plus one real-but-unauthenticated request that proves the
-  resilience path (see below) — never a real model response. `api.anthropic.com` itself is *not*
-  network-blocked; see `SOURCES.md`'s Milestone 3 update.
+- **No `ANTHROPIC_API_KEY` in this environment**, so both live generation (`/story`) and batch
+  pre-generation (`/route-pack`) are verified only via unit tests against injected fakes, plus a
+  real-but-unauthenticated request proving each one's resilience path (see below) — never a real
+  model response. `api.anthropic.com` itself is *not* network-blocked; see `SOURCES.md`'s
+  Milestone 3 update.
 - The shared story cache is in-memory only — no Postgres persistence yet, so it resets on every
   server restart, same as `/feed`'s lack of persistence in M1/M2.
-- **Topic filters classify from text, not a real category field** — none of the four adapters
-  fetch a live category/type API (that's another unverifiable live surface, same as the sources
-  above), so `packages/core/src/topics` keyword-matches `title`/`summary` text instead. A ranking
-  preference, never a hard filter, so a miss just doesn't boost a place rather than hiding it.
-- **This environment's egress proxy also blocks every free map-tile host tried** (OpenFreeMap,
-  the MapLibre demo style, CARTO) — the map view is verified live to degrade gracefully (an inline
-  "tiles unavailable" note, no crash) rather than to actually render tiles. `VITE_MAP_STYLE_URL`
-  swaps in a real style with no code change.
+- **Topic filters classify from text, not a real category field**, and **map tiles are unreachable
+  from this environment** (OpenFreeMap, the MapLibre demo style, CARTO all blocked) — see the
+  Milestone 4 section of `PLAN.md` for both.
+- **No real PMTiles byte data is produced or served** — `packages/core/tiles` computes the real
+  tile coordinates a corridor needs, but building/hosting the `.pmtiles` archive itself is a
+  self-hosted data-pipeline step this codebase doesn't reimplement, the same posture `SOURCES.md`
+  already takes for self-hosted OSRM.
+- **No premium TTS / audio blobs** — offline playback uses the same free-tier Web Speech API as
+  live playback (no network needed once the app shell is cached); pre-rendered audio needs
+  Milestone 6's billing-gated TTS provider.
+- **Batch pre-generation makes one attempt per place**, not the live path's regenerate-once — see
+  `services/storytelling/src/batch.ts`'s own doc comment for why that's an accepted difference.
 - **The trip log is client-local (`localStorage`) only** — there's no account system yet (M6) for
   a server-backed version to belong to, so it can't sync across devices.
 - Citation highlighting in the text card is unit-tested but has never rendered a *real* citation
   live, since no real model response has been seen in this environment (same root cause as the
   `ANTHROPIC_API_KEY` gap above).
+- **MVP acceptance criteria #1–#3 (§14) remain unautomated** — only #4 (route-pack offline
+  playback) has a dedicated, repeatable check behind it from this build. See `PLAN.md`'s
+  Milestone 5 caveats for exactly what that means.
 
 **What *has* been verified, live, against the real (blocked) network:** with all three live feed
 sources correctly failing and being caught, `/feed` fell back to the local NRHP dataset and
-returned real ranked results at **HTTP 200** — not a failure. At a location with nothing
-anywhere, it degraded to an empty feed, still at 200. Booting the API with a real
-`new Anthropic()` client and calling `/story` showed the SDK's own client-side auth check reject
-the request (no key configured), `buildStory` correctly treat that as a failed attempt, retry
-once, and degrade to the grounded template fallback at **HTTP 200** rather than a 502. A full
-browser (Playwright) driving the simulator against the running web app confirmed: selecting topic
-filter chips actually changes the `topics` array in the live `/feed` request payload; the map
-initializes, hits the same blocked-network wall, and shows its fallback note without crashing the
-rest of the page; and enabling the trip log, hearing two places, and exporting JSON produced a
-real browser download with the correct recorded entries.
+returned real ranked results at **HTTP 200** — not a failure. Booting the API with a real
+`new Anthropic()` client and calling `/story` and `/route-pack` both showed the SDK's own
+client-side auth check reject the request (no key configured), and both `buildStory` and
+`generateStoriesViaBatch` correctly caught that and degraded to the grounded template fallback at
+**HTTP 200** rather than a 502. **The Milestone 5 centerpiece:** downloaded a real route pack
+through the running web app (real corridor sampling, real ingestion against the blocked sources,
+real tile-coordinate computation, a real pack saved to IndexedDB), then used Playwright's
+`context.setOffline(true)` — an actual network cut — to reload the page and confirm the service
+worker served the cached app shell, the downloaded pack was still listed from a real offline
+IndexedDB read, and "Play offline" correctly drove sequential playback through the pack's stories
+in route order with **zero network requests**. That's PLAN.md §14's fourth MVP acceptance
+criterion, executed against a real browser and a real offline network condition, not a mock.
 
 ## Quickstart
 
@@ -101,7 +114,8 @@ location), optionally select topic filters or turn on the trip log, and press St
 bar shows the live-detected travel mode and speed; a map shows your position and nearby
 candidates; a text card appears — read aloud automatically — whenever `/feed` finds something
 nearby, drawing on whichever sources are reachable and falling back to the regional gap filler
-otherwise.
+otherwise. Below that, "Offline route packs" lets you download one of the sample tracks as a pack
+and play it back fully offline (try it with your network actually disabled, once downloaded).
 
 ## Repo layout
 
@@ -109,19 +123,23 @@ otherwise.
 packages/
   core/         # pure domain logic: geometry, mode detection, H3 cell rounding, dedup/
                 # clustering, ranking, spatial-frame classification, grounding validators,
-                # topic classification, GPX simulator. No I/O.
-  contracts/    # shared zod schemas (PlaceEvent, /feed request & response, Story, StoryRequest)
+                # topic classification, corridor sampling, PMTiles tile-coordinate math,
+                # GPX simulator. No I/O.
+  contracts/    # shared zod schemas (PlaceEvent, /feed, Story, Route, RoutePack, ...)
 services/
   adapters/
     wikipedia/  # GeoSearch + extracts, plus fetchArticleByTitle for the gap filler
     wikidata/   # SPARQL: nearby dated items, and nearest-settlement search
     overpass/   # historic=*/memorial=*/heritage=* OSM elements
     nrhp/       # local-dataset query (bulk download not yet wired — see its fixtures/README.md)
-  storytelling/ # Claude generation + citations, 3-layer grounding, shared cache, eval set
+    osrm/       # driving-route polyline lookup (dev-only demo server — see its fixtures/README.md)
+  storytelling/ # Claude generation + citations, 3-layer grounding, shared cache, Batch API
+                # pre-generation, eval set
 apps/
-  api/          # Hono server: POST /feed, POST /story
-  web/          # Vite + React app: live/simulated position, mode detection, narration
-tracks/         # sample GPX tracks for the GPS simulator
+  api/          # Hono server: POST /feed, POST /story, POST /route-pack
+  web/          # Vite + React app: live/simulated position, mode detection, narration, offline
+                # route packs (IndexedDB + service worker)
+tracks/         # sample GPX tracks for the GPS simulator and for track-based route packs
 ```
 
 See `PLAN.md` §3 for the full planned layout as later milestones (LLM storytelling, offline
@@ -137,7 +155,12 @@ whatever sources *are* up (down to the local NRHP dataset, which needs no networ
 than fail the request, and that resilience path is itself exercised by the test suites and by a
 real server boot against this exact blocked network.
 
-`api.anthropic.com` (used by `/story`) is a different case: it's reachable from this
-environment, but no `ANTHROPIC_API_KEY` is configured, so the same "degrade, don't fail"
+`api.anthropic.com` (used by `/story` and `/route-pack`) is a different case: it's reachable from
+this environment, but no `ANTHROPIC_API_KEY` is configured, so the same "degrade, don't fail"
 philosophy applies for a different reason — see `SOURCES.md`'s Milestone 3 update and
 `services/storytelling/eval/README.md`.
+
+`router.project-osrm.org` (used by `/route-pack`'s live routing path) is blocked the same way the
+four content sources are — see `services/adapters/osrm/fixtures/README.md`. `/route-pack` also
+accepts a `trackId` instead of an origin/destination pair specifically so the rest of the offline
+pipeline can be exercised without it.

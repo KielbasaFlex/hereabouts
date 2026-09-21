@@ -1,9 +1,11 @@
-import type { PlaceEvent, Story } from "@hereabouts/contracts";
+import type { PlaceEvent, RoutePack, Story } from "@hereabouts/contracts";
+import type { Mode } from "@hereabouts/core";
 import { parseGpx, type PositionSource } from "@hereabouts/core/sim";
 import type { TopicId } from "@hereabouts/core/topics";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import { fetchStory } from "./api";
+import { fetchRoutePack, fetchStory } from "./api";
+import { RoutePackPanel } from "./components/RoutePackPanel";
 import { TextCard } from "./components/TextCard";
 import { TopicFilters } from "./components/TopicFilters";
 import { TripLogPanel } from "./components/TripLogPanel";
@@ -11,6 +13,7 @@ import { downloadTextFile } from "./download";
 import { formatMode, formatSpeed } from "./format";
 import { useFeed } from "./hooks/useFeed";
 import { usePositionFix } from "./hooks/usePositionFix";
+import { deleteRoutePack, listRoutePacks, saveRoutePack } from "./offlineStore";
 import { LiveGeolocationSource } from "./position/liveGeolocationSource";
 import { SimulatedPositionSource } from "./position/simulatedSource";
 import { createSpeechController } from "./speech";
@@ -35,9 +38,9 @@ const MapView = lazy(() => import("./components/MapView").then((m) => ({ default
 type SourceKind = "live" | "simulator";
 
 const SAMPLE_TRACKS = [
-  { id: "downtown-walk", label: "Downtown walk", file: "downtown-walk.gpx" },
-  { id: "coastal-bike", label: "Coastal bike ride", file: "coastal-bike.gpx" },
-  { id: "highway-drive", label: "Highway drive", file: "highway-drive.gpx" },
+  { id: "downtown-walk", label: "Downtown walk", file: "downtown-walk.gpx", mode: "walking" satisfies Mode },
+  { id: "coastal-bike", label: "Coastal bike ride", file: "coastal-bike.gpx", mode: "biking" satisfies Mode },
+  { id: "highway-drive", label: "Highway drive", file: "highway-drive.gpx", mode: "driving" satisfies Mode },
 ] as const;
 
 type TrackId = (typeof SAMPLE_TRACKS)[number]["id"];
@@ -60,6 +63,11 @@ export function App() {
   const [selectedTopics, setSelectedTopics] = useState<ReadonlySet<TopicId>>(new Set());
   const [tripLogEnabled, setTripLogEnabledState] = useState(() => isTripLogEnabled(window.localStorage));
   const [tripLogEntries, setTripLogEntries] = useState<TripLogEntry[]>(() => loadTripLog(window.localStorage));
+  const [downloadedPacks, setDownloadedPacks] = useState<RoutePack[]>([]);
+  const [downloadingTrackId, setDownloadingTrackId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [offlinePlayback, setOfflinePlayback] = useState<{ pack: RoutePack; index: number } | null>(null);
+  const [offlinePaused, setOfflinePaused] = useState(false);
 
   const liveSourceRef = useRef<LiveGeolocationSource | null>(null);
   const simSourceRef = useRef<SimulatedPositionSource | null>(null);
@@ -104,6 +112,93 @@ export function App() {
   function handleClearTripLog() {
     clearTripLog(window.localStorage);
     setTripLogEntries([]);
+  }
+
+  useEffect(() => {
+    listRoutePacks()
+      .then(setDownloadedPacks)
+      .catch((err) => console.warn("failed to load downloaded route packs:", err));
+  }, []);
+
+  // Milestone 5 (PLAN.md §11): downloads a route pack for one of the sample
+  // tracks — batch-generated stories, ready to store in IndexedDB and play
+  // back with the network off. Never automatic; only ever user-initiated.
+  async function handleDownloadPack(trackId: string) {
+    const track = SAMPLE_TRACKS.find((t) => t.id === trackId);
+    if (!track) return;
+
+    setDownloadingTrackId(trackId);
+    setDownloadError(null);
+    try {
+      const pack = await fetchRoutePack({ mode: track.mode, trackId: track.id });
+      await saveRoutePack(pack);
+      setDownloadedPacks((prev) => [...prev.filter((p) => p.packId !== pack.packId), pack]);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Failed to download route pack");
+    } finally {
+      setDownloadingTrackId(null);
+    }
+  }
+
+  async function handleDeletePack(packId: string) {
+    await deleteRoutePack(packId);
+    setDownloadedPacks((prev) => prev.filter((p) => p.packId !== packId));
+    if (offlinePlayback?.pack.packId === packId) stopOfflinePlayback();
+  }
+
+  /**
+   * Offline playback (PLAN.md §10/§11): plays a downloaded pack's stories
+   * in route order, independent of GPS — the "excellent audio tour" mode
+   * that survives the network (and, per §10, an iOS lock screen once
+   * stitched into one continuous audio timeline; this is the sequential
+   * side of that without the lock-screen-continuity piece yet).
+   */
+  function startOfflinePlayback(pack: RoutePack) {
+    stopAll();
+    setOfflinePaused(false);
+    setOfflinePlayback({ pack, index: 0 });
+  }
+
+  function stopOfflinePlayback() {
+    speech.cancel();
+    setOfflinePlayback(null);
+    setOfflinePaused(false);
+  }
+
+  useEffect(() => {
+    if (!offlinePlayback) return;
+    const { pack, index } = offlinePlayback;
+    if (index >= pack.stories.length) {
+      setOfflinePlayback(null);
+      return;
+    }
+    const story = pack.stories[index]!;
+    speech.speak(story.narration, () => {
+      setOfflinePlayback((prev) => (prev ? { pack: prev.pack, index: prev.index + 1 } : prev));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offlinePlayback?.pack.packId, offlinePlayback?.index]);
+
+  function handleOfflinePlayPause() {
+    if (offlinePaused) {
+      speech.resume();
+      setOfflinePaused(false);
+    } else {
+      speech.pause();
+      setOfflinePaused(true);
+    }
+  }
+
+  function handleOfflineSkip() {
+    setOfflinePlayback((prev) => (prev ? { pack: prev.pack, index: prev.index + 1 } : prev));
+  }
+
+  function handleOfflineReplay() {
+    if (!offlinePlayback) return;
+    setOfflinePaused(false);
+    speech.speak(offlinePlayback.pack.stories[offlinePlayback.index]!.narration, () => {
+      setOfflinePlayback((prev) => (prev ? { pack: prev.pack, index: prev.index + 1 } : prev));
+    });
   }
 
   // As soon as the feed surfaces a new unheard place: mark it current, kick
@@ -181,6 +276,8 @@ export function App() {
     setCurrentStory(null);
     setPositionSource(null);
     setRunning(false);
+    setOfflinePlayback(null);
+    setOfflinePaused(false);
   }
 
   function startLive() {
@@ -353,27 +450,60 @@ export function App() {
       )}
 
       <main className="app__main">
-        {running && (
-          <Suspense fallback={<div className="map-view map-view--loading">Loading map…</div>}>
-            <MapView position={fix ? { lat: fix.lat, lon: fix.lon } : null} places={feed.places} />
-          </Suspense>
-        )}
-
-        {currentPlace ? (
-          <TextCard
-            place={currentPlace}
-            story={currentStory}
-            storyLoading={storyLoading}
-            isPlaying={true}
-            isPaused={isPaused}
-            onPlayPause={handlePlayPause}
-            onReplay={handleReplay}
-            onSkip={handleSkip}
-          />
+        {offlinePlayback ? (
+          <>
+            <p className="app__offline-status">
+              Offline playback — place {offlinePlayback.index + 1} of {offlinePlayback.pack.stories.length}
+            </p>
+            <TextCard
+              place={offlinePlayback.pack.places[offlinePlayback.index]!}
+              story={offlinePlayback.pack.stories[offlinePlayback.index]!}
+              storyLoading={false}
+              isPlaying={true}
+              isPaused={offlinePaused}
+              onPlayPause={handleOfflinePlayPause}
+              onReplay={handleOfflineReplay}
+              onSkip={handleOfflineSkip}
+            />
+            <button type="button" onClick={stopOfflinePlayback}>
+              Stop offline playback
+            </button>
+          </>
         ) : (
-          running && <p className="app__waiting">Nothing nearby yet — listening for stories…</p>
+          <>
+            {running && (
+              <Suspense fallback={<div className="map-view map-view--loading">Loading map…</div>}>
+                <MapView position={fix ? { lat: fix.lat, lon: fix.lon } : null} places={feed.places} />
+              </Suspense>
+            )}
+
+            {currentPlace ? (
+              <TextCard
+                place={currentPlace}
+                story={currentStory}
+                storyLoading={storyLoading}
+                isPlaying={true}
+                isPaused={isPaused}
+                onPlayPause={handlePlayPause}
+                onReplay={handleReplay}
+                onSkip={handleSkip}
+              />
+            ) : (
+              running && <p className="app__waiting">Nothing nearby yet — listening for stories…</p>
+            )}
+          </>
         )}
       </main>
+
+      <RoutePackPanel
+        tracks={SAMPLE_TRACKS}
+        downloadedPacks={downloadedPacks}
+        downloadingTrackId={downloadingTrackId}
+        downloadError={downloadError}
+        onDownload={(id) => void handleDownloadPack(id)}
+        onPlayOffline={startOfflinePlayback}
+        onDelete={(id) => void handleDeletePack(id)}
+      />
 
       <TripLogPanel
         enabled={tripLogEnabled}

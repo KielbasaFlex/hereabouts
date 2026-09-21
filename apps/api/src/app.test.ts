@@ -1,9 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { PlaceEvent, Story } from "@hereabouts/contracts";
+import type { PlaceEvent, RoutePack, Story } from "@hereabouts/contracts";
 import { InMemoryStoryCache, type StoryCache } from "@hereabouts/storytelling";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 import type { FeedDependencies, FetchSourceFn } from "./feed.js";
+import type { RoutePackDependencies } from "./route-pack.js";
 import type { StoryDependencies } from "./story.js";
 
 const SAMPLE_PLACE: PlaceEvent = {
@@ -66,8 +67,61 @@ function noopStoryDeps(overrides: Partial<StoryDependencies> = {}): StoryDepende
   };
 }
 
-function testApp(overrides: { feed?: Partial<FeedDependencies>; story?: Partial<StoryDependencies> } = {}) {
-  return createApp({ feed: noopFeedDeps(overrides.feed), story: noopStoryDeps(overrides.story) });
+/** A fake client with working Batch API methods, for route-pack tests — every submitted request "succeeds" with `narration`. */
+function fakeBatchAnthropicClient(narration: string): Pick<Anthropic, "messages"> {
+  let submittedIds: string[] = [];
+  const batchesCreate = vi.fn(async (params: { requests: { custom_id: string }[] }) => {
+    submittedIds = params.requests.map((r) => r.custom_id);
+    return { id: "batch_test", processing_status: "in_progress" };
+  });
+  const retrieve = vi.fn(async () => ({ processing_status: "ended" }));
+  const results = vi.fn(async () => ({
+    [Symbol.asyncIterator]: async function* () {
+      for (const customId of submittedIds) {
+        yield { custom_id: customId, result: { type: "succeeded", message: { content: [{ type: "text", text: narration }] } } };
+      }
+    },
+  }));
+  return {
+    messages: {
+      create: vi.fn(async () => ({ content: [{ type: "text", text: narration }] })),
+      parse: vi.fn(async () => ({
+        parsed_output: { allFactsSupported: true, unsupportedClaim: null, mirrorsSourcePhrasing: false },
+      })),
+      batches: { create: batchesCreate, retrieve, results },
+    },
+  } as unknown as Pick<Anthropic, "messages">;
+}
+
+function noopRoutePackDeps(
+  overrides: Partial<Omit<RoutePackDependencies, "feed">> & { feed?: Partial<FeedDependencies> } = {},
+): RoutePackDependencies {
+  return {
+    fetchRoute: vi.fn(async () => ({
+      points: [{ lat: 27.9506, lon: -82.4572 }, { lat: 27.9516, lon: -82.4562 }],
+      distanceM: 130,
+      durationS: 25,
+    })),
+    loadTrack: vi.fn(async () => [{ lat: 27.9506, lon: -82.4572 }, { lat: 27.9516, lon: -82.4562 }]),
+    client: fakeBatchAnthropicClient(VALID_DRIVING_NARRATION),
+    cache: new InMemoryStoryCache(),
+    ...overrides,
+    feed: noopFeedDeps(overrides.feed),
+  };
+}
+
+function testApp(
+  overrides: {
+    feed?: Partial<FeedDependencies>;
+    story?: Partial<StoryDependencies>;
+    routePack?: Partial<Omit<RoutePackDependencies, "feed">> & { feed?: Partial<FeedDependencies> };
+  } = {},
+) {
+  return createApp({
+    feed: noopFeedDeps(overrides.feed),
+    story: noopStoryDeps(overrides.story),
+    routePack: noopRoutePackDeps(overrides.routePack),
+  });
 }
 
 describe("GET /health", () => {
@@ -280,5 +334,130 @@ describe("POST /story", () => {
     const story = (await second.json()) as Story;
     expect(story.cached).toBe(true);
     expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("POST /route-pack", () => {
+  it("builds a pack from a named sample track — no live routing call needed", async () => {
+    const app = testApp({ routePack: { feed: { fetchWikipedia: vi.fn(async () => [SAMPLE_PLACE]) } } });
+
+    const res = await app.request("/route-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "driving", trackId: "downtown-walk" }),
+    });
+
+    expect(res.status).toBe(200);
+    const pack = (await res.json()) as RoutePack;
+    expect(pack.places).toHaveLength(1);
+    expect(pack.places[0]!.id).toBe(SAMPLE_PLACE.id);
+    expect(pack.stories).toHaveLength(1);
+    expect(pack.stories[0]!.placeId).toBe(SAMPLE_PLACE.id);
+    expect(pack.tiles.length).toBeGreaterThan(0);
+    expect(pack.attribution).toContain("Wikipedia, CC BY-SA 4.0");
+    expect(pack.route.points.length).toBeGreaterThan(0);
+  });
+
+  it("builds a pack from an origin/destination pair via the routing adapter", async () => {
+    const fetchRoute = vi.fn(async () => ({
+      points: [{ lat: 27.9506, lon: -82.4572 }, { lat: 27.9516, lon: -82.4562 }],
+      distanceM: 130,
+      durationS: 25,
+    }));
+    const app = testApp({ routePack: { fetchRoute } });
+
+    const res = await app.request("/route-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "driving",
+        origin: { lat: 27.9506, lon: -82.4572 },
+        destination: { lat: 27.9516, lon: -82.4562 },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(fetchRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an empty pack (not an error) when nothing is found along the route", async () => {
+    const app = testApp();
+
+    const res = await app.request("/route-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "driving", trackId: "downtown-walk" }),
+    });
+
+    expect(res.status).toBe(200);
+    const pack = (await res.json()) as RoutePack;
+    expect(pack.places).toEqual([]);
+    expect(pack.stories).toEqual([]);
+  });
+
+  it("returns 400 for a request with neither trackId nor origin/destination", async () => {
+    const app = testApp();
+
+    const res = await app.request("/route-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "driving" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("degrades to template-fallback stories (200), not a 502, when the Batch API itself is unreachable", async () => {
+    // Mirrors /story's own resilience test: a thrown batch-submission error
+    // (e.g. this environment's missing ANTHROPIC_API_KEY rejecting the
+    // request client-side, same as Milestone 3's /story finding) is caught
+    // inside generateStoriesViaBatch and treated as every place's batch
+    // request having failed — it degrades the pack, it doesn't fail it.
+    const brokenClient = {
+      messages: {
+        batches: {
+          create: vi.fn(async () => {
+            throw new Error("batches API is down");
+          }),
+        },
+      },
+    } as unknown as Pick<Anthropic, "messages">;
+    const app = testApp({
+      routePack: { feed: { fetchWikipedia: vi.fn(async () => [SAMPLE_PLACE]) }, client: brokenClient },
+    });
+
+    const res = await app.request("/route-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "driving", trackId: "downtown-walk" }),
+    });
+
+    expect(res.status).toBe(200);
+    const pack = (await res.json()) as RoutePack;
+    expect(pack.stories).toHaveLength(1);
+    expect(pack.stories[0]!.validationStatus).toBe("template_fallback");
+    expect(pack.stories[0]!.narration).toContain(SAMPLE_PLACE.sourceExcerpt);
+  });
+
+  it("returns 502 on a genuinely unexpected internal error", async () => {
+    const brokenCache: StoryCache = {
+      get: () => undefined,
+      set: () => {
+        throw new Error("cache corrupted");
+      },
+    };
+    const app = testApp({
+      routePack: { feed: { fetchWikipedia: vi.fn(async () => [SAMPLE_PLACE]) }, cache: brokenCache },
+    });
+
+    const res = await app.request("/route-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "driving", trackId: "downtown-walk" }),
+    });
+
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("route_pack_error");
   });
 });

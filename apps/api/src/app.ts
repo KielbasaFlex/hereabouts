@@ -1,12 +1,14 @@
-import { FeedRequest, StoryRequest } from "@hereabouts/contracts";
+import { FeedRequest, RoutePackRequest, StoryRequest } from "@hereabouts/contracts";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { buildFeed, type FeedDependencies } from "./feed.js";
+import { buildRoutePack, type RoutePackDependencies } from "./route-pack.js";
 import { buildStoryForRequest, type StoryDependencies } from "./story.js";
 
 export interface AppDependencies {
   feed: FeedDependencies;
   story: StoryDependencies;
+  routePack: RoutePackDependencies;
 }
 
 /**
@@ -53,6 +55,22 @@ export function createApp(deps: AppDependencies): Hono {
     } catch (error) {
       console.error("story request failed", error);
       return c.json({ error: "generation_error" }, 502);
+    }
+  });
+
+  app.post("/route-pack", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = RoutePackRequest.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "invalid_request", issues: parsed.error.issues }, 400);
+    }
+
+    try {
+      const pack = await buildRoutePack(parsed.data, deps.routePack);
+      return c.json(pack);
+    } catch (error) {
+      console.error("route-pack request failed", error);
+      return c.json({ error: "route_pack_error" }, 502);
     }
   });
 

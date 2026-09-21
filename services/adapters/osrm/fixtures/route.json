@@ -1,0 +1,32 @@
+{
+  "code": "Ok",
+  "routes": [
+    {
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-82.4572, 27.9506],
+          [-82.4561, 27.9518],
+          [-82.4549, 27.9531],
+          [-82.4538, 27.9544]
+        ]
+      },
+      "distance": 612.4,
+      "duration": 98.7,
+      "weight_name": "routability",
+      "weight": 98.7,
+      "legs": [
+        {
+          "distance": 612.4,
+          "duration": 98.7,
+          "summary": "",
+          "steps": []
+        }
+      ]
+    }
+  ],
+  "waypoints": [
+    { "hint": "sample-hint-1", "distance": 3.2, "name": "", "location": [-82.4572, 27.9506] },
+    { "hint": "sample-hint-2", "distance": 4.1, "name": "", "location": [-82.4538, 27.9544] }
+  ]
+}

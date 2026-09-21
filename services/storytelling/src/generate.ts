@@ -25,46 +25,64 @@ export interface GeneratedNarration {
   model: string;
 }
 
-export interface GenerateNarrationOptions {
+export interface NarrationRequestOptions {
   place: PlaceEvent;
   mode: Mode;
   spatialFrame: SpatialFrame;
-  /** Injectable for tests; defaults to a real `new Anthropic()` client. */
-  client: Pick<Anthropic, "messages">;
 }
 
-export async function generateNarration(options: GenerateNarrationOptions): Promise<GeneratedNarration> {
+/**
+ * Builds the `messages.create` request body for one place — shared between
+ * the live single-story path below and `batch.ts`'s Batch API pre-generation
+ * (each batch request's `params` is exactly this shape, per the Batches
+ * API's "same request body as `messages.create`, minus streaming"), so the
+ * two paths can never drift apart on prompt/citations/effort construction.
+ */
+export function buildGenerationRequestParams(options: NarrationRequestOptions) {
   const system = buildSystemPrompt({
     mode: options.mode,
     spatialFrame: options.spatialFrame,
     datePrecision: options.place.datePrecision,
   });
 
-  const response = await options.client.messages.create({
+  return {
     model: GENERATION_MODEL,
     max_tokens: 8000,
     system,
-    output_config: { effort: "low" },
+    output_config: { effort: "low" as const },
     messages: [
       {
-        role: "user",
+        role: "user" as const,
         content: [
           {
-            type: "document",
-            source: { type: "text", media_type: "text/plain", data: options.place.sourceExcerpt },
+            type: "document" as const,
+            source: { type: "text" as const, media_type: "text/plain" as const, data: options.place.sourceExcerpt },
             title: options.place.title,
             citations: { enabled: true },
           },
-          { type: "text", text: `Write the narration for "${options.place.title}".` },
+          { type: "text" as const, text: `Write the narration for "${options.place.title}".` },
         ],
       },
     ],
-  });
+  };
+}
 
+export interface GenerateNarrationOptions extends NarrationRequestOptions {
+  /** Injectable for tests; defaults to a real `new Anthropic()` client. */
+  client: Pick<Anthropic, "messages">;
+}
+
+/**
+ * Extracts narration text + citation spans from a `Message`'s content
+ * blocks — shared by the live path (below) and `batch.ts`, since a batch
+ * result's `.result.message` is the same `Message` shape a direct
+ * `messages.create` call returns.
+ */
+export function extractNarration(content: Anthropic.Message["content"]): { narration: string; citations: Citation[] } {
   let narration = "";
   const citations: Citation[] = [];
 
-  for (const block of response.content) {
+  for (const block of content) {
     if (block.type !== "text") continue; // skip thinking blocks (adaptive thinking is on by default for this model)
     narration += block.text;
     for (const citation of block.citations ?? []) {
@@ -78,5 +96,11 @@ export async function generateNarration(options: GenerateNarrationOptions): Prom
     }
   }
 
-  return { narration: narration.trim(), citations, model: GENERATION_MODEL };
+  return { narration: narration.trim(), citations };
+}
+
+export async function generateNarration(options: GenerateNarrationOptions): Promise<GeneratedNarration> {
+  const response = await options.client.messages.create(buildGenerationRequestParams(options));
+  const { narration, citations } = extractNarration(response.content);
+  return { narration, citations, model: GENERATION_MODEL };
 }

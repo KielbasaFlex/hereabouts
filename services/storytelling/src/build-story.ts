@@ -2,10 +2,9 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { LengthBucket, PlaceEvent, Story } from "@hereabouts/contracts";
 import { validateGrounding, type Mode, type SpatialFrame } from "@hereabouts/core";
 import type { StoryCache } from "./cache.js";
-import { generateNarration, GENERATION_MODEL } from "./generate.js";
-import { judgeNarration } from "./judge.js";
+import { finalizeNarration } from "./finalize.js";
+import { generateNarration } from "./generate.js";
 import { PROMPT_VERSION } from "./prompt.js";
-import { buildTemplateFallback } from "./template-fallback.js";
 
 function toLengthBucket(mode: Mode): LengthBucket {
   if (mode === "driving") return "driving";
@@ -75,37 +74,9 @@ export async function buildStory(options: BuildStoryOptions): Promise<Story> {
   let generated = await attempt();
   if (!generated) generated = await attempt(); // regenerate once, per PLAN.md §8.3
 
-  let narration: string;
-  let citations: Story["citations"];
-  let validationStatus: Story["validationStatus"];
-  let model: string;
+  const finalized = await finalizeNarration({ place: options.place, groundedGenerated: generated, client: options.client });
 
-  if (generated) {
-    const judged = await judgeNarration({
-      narration: generated.narration,
-      sourceExcerpt: options.place.sourceExcerpt,
-      client: options.client,
-    }).catch(() => null); // a judge failure doesn't invalidate a Layer-2-passed narration — see doc comment above
+  options.cache.set(cacheKey, finalized);
 
-    if (judged && (!judged.allFactsSupported || judged.mirrorsSourcePhrasing)) {
-      narration = buildTemplateFallback(options.place);
-      citations = [];
-      validationStatus = "template_fallback";
-      model = GENERATION_MODEL;
-    } else {
-      narration = generated.narration;
-      citations = generated.citations;
-      validationStatus = "validated";
-      model = generated.model;
-    }
-  } else {
-    narration = buildTemplateFallback(options.place);
-    citations = [];
-    validationStatus = "template_fallback";
-    model = GENERATION_MODEL;
-  }
-
-  options.cache.set(cacheKey, { narration, citations, validationStatus, model });
-
-  return { placeId: options.place.id, lengthBucket, promptVersion: PROMPT_VERSION, narration, citations, validationStatus, model, cached: false };
+  return { placeId: options.place.id, lengthBucket, promptVersion: PROMPT_VERSION, cached: false, ...finalized };
 }
