@@ -18,15 +18,22 @@ export interface TextCardProps {
 }
 
 /**
- * The text card (PLAN.md §9): title, distance, narration, source excerpt,
- * source link, license attribution, and playback controls.
+ * The text card (PLAN.md §9): title, distance, narration, an expandable
+ * source excerpt, source link, license attribution, and playback controls.
  *
- * M1 reads the raw Wikipedia extract verbatim, so "narration" and "source
- * excerpt" are the same text — shown once here, not duplicated, with a note
- * that Milestone 3 is what turns this into scaled, grounded, non-mirroring
- * narration distinct from the excerpt it's drawn from.
+ * `summary` (spoken and shown as the primary narration) and `sourceExcerpt`
+ * (the grounding substrate, shown verbatim) are the same text for a normal
+ * point-level place — adapters read raw extracts, unmodified, until
+ * Milestone 3's storytelling pipeline generates real narration from them.
+ * They diverge for a gap-filler place (PLAN.md §7.6): `summary` carries the
+ * honest "around this part of {settlement}" framing, while `sourceExcerpt`
+ * stays the pure, unedited article extract. The source-excerpt block below
+ * only renders when the two actually differ, so the common case isn't
+ * cluttered with an identical repeat.
  */
 export function TextCard({ place, isPlaying, isPaused, onPlayPause, onSkip, onReplay }: TextCardProps) {
+  const hasDistinctExcerpt = place.sourceExcerpt !== place.summary;
+
   return (
     <article className="text-card">
       <header>
@@ -34,10 +41,19 @@ export function TextCard({ place, isPlaying, isPaused, onPlayPause, onSkip, onRe
         <p className="text-card__distance">{formatDistance(place.distanceM)}</p>
       </header>
 
-      <p className="text-card__narration">{place.sourceExcerpt}</p>
-      <p className="text-card__narration-note">
-        Raw source excerpt — grounded, length-scaled narration arrives in Milestone 3.
-      </p>
+      <p className="text-card__narration">{place.summary}</p>
+      {!hasDistinctExcerpt && (
+        <p className="text-card__narration-note">
+          Raw source excerpt — grounded, length-scaled narration arrives in Milestone 3.
+        </p>
+      )}
+
+      {hasDistinctExcerpt && (
+        <details className="text-card__excerpt">
+          <summary>Source excerpt</summary>
+          <p>{place.sourceExcerpt}</p>
+        </details>
+      )}
 
       <footer>
         <a href={place.sourceUrl} target="_blank" rel="noreferrer" className="text-card__source-link">

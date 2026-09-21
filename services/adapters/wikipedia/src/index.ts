@@ -60,6 +60,8 @@ interface ExtractPage {
   extract?: string;
   fullurl?: string;
   missing?: boolean;
+  /** Present when `prop` includes `pageprops` and the article has an associated Wikidata item. */
+  pageprops?: { wikibase_item?: string };
 }
 
 interface ExtractsResponse {
@@ -68,6 +70,18 @@ interface ExtractsResponse {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * Cheap notability proxy (PLAN.md §7.4): "incoming links + article length +
+ * pageviews" is the target heuristic, but pageviews/backlinks need a
+ * separate API call this adapter doesn't make. Extract length is the part
+ * we already have for free — a longer lead section correlates loosely with
+ * a more substantial article. Deliberately capped well below 1.0 so a
+ * length-only heuristic never outranks a source with real signal.
+ */
+function estimateNotability(extractLength: number): number {
+  return Math.min(0.6, 0.2 + extractLength / 2000);
 }
 
 async function callApi<T>(
@@ -124,8 +138,9 @@ export async function fetchNearbyPlaces(options: FetchNearbyOptions): Promise<Pl
 
   const extracts = await callApi<ExtractsResponse>(fetchImpl, userAgent, {
     action: "query",
-    prop: "extracts|info",
+    prop: "extracts|info|pageprops",
     inprop: "url",
+    ppprop: "wikibase_item",
     exintro: "1",
     explaintext: "1",
     exchars: String(extractChars),
@@ -163,8 +178,81 @@ export async function fetchNearbyPlaces(options: FetchNearbyOptions): Promise<Pl
       sourceUrl,
       license: "cc-by-sa-4.0",
       topics: [],
+      notability: estimateNotability(extract.length),
+      externalIds: {
+        wikipediaTitle: result.title,
+        ...(page.pageprops?.wikibase_item ? { wikidataQid: page.pageprops.wikibase_item } : {}),
+      },
     });
   }
 
   return places;
+}
+
+export interface FetchArticleByTitleOptions {
+  title: string;
+  /**
+   * Coordinates to attach to the result. This function doesn't do its own
+   * coordinate lookup — callers using it for the gap filler (PLAN.md §7.6)
+   * already have the relevant point (e.g. the settlement's own coordinates
+   * from the Wikidata adapter) and reusing it avoids a second round-trip.
+   */
+  lat: number;
+  lon: number;
+  extractChars?: number;
+  userAgent?: string;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Fetches a single Wikipedia article by exact title — used by the gap
+ * filler to pull the regional (settlement-level) article once
+ * `@hereabouts/adapter-wikidata`'s `fetchNearestSettlement` has named it.
+ * Returns `null` if the title doesn't resolve to an article with a lead
+ * extract (missing page, disambiguation stub, redirect loop, etc.).
+ */
+export async function fetchArticleByTitle(options: FetchArticleByTitleOptions): Promise<PlaceEvent | null> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const userAgent = options.userAgent ?? HEREABOUTS_USER_AGENT;
+  const extractChars = options.extractChars ?? 600;
+
+  const response = await callApi<ExtractsResponse>(fetchImpl, userAgent, {
+    action: "query",
+    prop: "extracts|info|pageprops",
+    inprop: "url",
+    ppprop: "wikibase_item",
+    exintro: "1",
+    explaintext: "1",
+    exchars: String(extractChars),
+    titles: options.title,
+    format: "json",
+    formatversion: "2",
+  });
+
+  const page = response.query?.pages?.[0];
+  const extract = page?.extract?.trim();
+  if (!page || page.missing || !extract) return null;
+
+  const sourceUrl =
+    page.fullurl ?? `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, "_"))}`;
+
+  return {
+    id: `wikipedia:${page.pageid}`,
+    source: "wikipedia",
+    sourceId: String(page.pageid),
+    title: page.title,
+    lat: options.lat,
+    lon: options.lon,
+    datePrecision: "unknown",
+    summary: extract,
+    sourceExcerpt: extract,
+    sourceUrl,
+    license: "cc-by-sa-4.0",
+    topics: [],
+    notability: estimateNotability(extract.length),
+    externalIds: {
+      wikipediaTitle: page.title,
+      ...(page.pageprops?.wikibase_item ? { wikidataQid: page.pageprops.wikibase_item } : {}),
+    },
+  };
 }

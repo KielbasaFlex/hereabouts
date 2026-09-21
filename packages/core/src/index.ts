@@ -2,3 +2,5 @@ export * from "./geo/index.js";
 export * from "./mode/index.js";
 export * from "./cell/index.js";
 export * from "./sim/index.js";
+export * from "./dedup/index.js";
+export * from "./rank/index.js";

@@ -11,6 +11,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hereabouts/adapter-nrhp": "workspace:*",
+    "@hereabouts/adapter-overpass": "workspace:*",
+    "@hereabouts/adapter-wikidata": "workspace:*",
     "@hereabouts/adapter-wikipedia": "workspace:*",
     "@hereabouts/contracts": "workspace:*",
     "@hereabouts/core": "workspace:*",

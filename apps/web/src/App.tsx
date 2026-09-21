@@ -54,7 +54,7 @@ export function App() {
       setCurrentPlace(next);
       setIsPaused(false);
       feed.markHeard(next.id);
-      speech.speak(next.sourceExcerpt);
+      speech.speak(next.summary);
     }
     // Re-run whenever the feed's candidate list changes; markHeard/speech are stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,7 +140,7 @@ export function App() {
   function handleReplay() {
     if (!currentPlace) return;
     setIsPaused(false);
-    speech.speak(currentPlace.sourceExcerpt);
+    speech.speak(currentPlace.summary);
   }
 
   function handleSkip() {

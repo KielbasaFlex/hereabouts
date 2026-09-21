@@ -7,7 +7,8 @@
         "ns": 0,
         "title": "Tampa Theatre",
         "extract": "The Tampa Theatre is a historic movie palace located in downtown Tampa, Florida. It opened in 1926 and was designed in an elaborate atmospheric style, intended to evoke an outdoor Mediterranean courtyard under a starlit sky.",
-        "fullurl": "https://en.wikipedia.org/wiki/Tampa_Theatre"
+        "fullurl": "https://en.wikipedia.org/wiki/Tampa_Theatre",
+        "pageprops": { "wikibase_item": "Q7677026" }
       },
       {
         "pageid": 65432,

@@ -58,12 +58,13 @@ describe("PlaceEvent", () => {
 });
 
 describe("FeedRequest", () => {
-  it("applies defaults for heading, speed, mode, and heardIds", () => {
+  it("applies defaults for heading, speed, mode, heardIds, and topics", () => {
     const result = FeedRequest.parse({ lat: 27.95, lon: -82.46 });
     expect(result.headingDeg).toBe(0);
     expect(result.speedMps).toBe(0);
     expect(result.mode).toBe("walking");
     expect(result.heardIds).toEqual([]);
+    expect(result.topics).toEqual([]);
   });
 
   it("rejects an invalid mode", () => {

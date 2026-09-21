@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
+  fetchArticleByTitle,
   fetchNearbyPlaces,
   GEOSEARCH_MAX_LIMIT,
   GEOSEARCH_MAX_RADIUS_M,
@@ -61,12 +62,18 @@ describe("fetchNearbyPlaces", () => {
       distanceM: 410.5,
       license: "cc-by-sa-4.0",
       sourceUrl: "https://en.wikipedia.org/wiki/Tampa_Theatre",
+      externalIds: { wikipediaTitle: "Tampa Theatre", wikidataQid: "Q7677026" },
     });
     expect(places[0]?.summary).toContain("Tampa Theatre is a historic movie palace");
     // M1 reads the raw excerpt verbatim: summary and sourceExcerpt match.
     expect(places[0]?.summary).toBe(places[0]?.sourceExcerpt);
+    expect(places[0]?.notability).toBeGreaterThan(0);
+    expect(places[0]?.notability).toBeLessThanOrEqual(0.6);
 
     expect(places[1]?.title).toBe("Tampa City Hall");
+    // No pageprops in the fixture for this page: wikidataQid is simply absent.
+    expect(places[1]?.externalIds.wikidataQid).toBeUndefined();
+    expect(places[1]?.externalIds.wikipediaTitle).toBe("Tampa City Hall");
   });
 
   it("drops pages the extracts call reports as missing", async () => {
@@ -151,5 +158,46 @@ describe("fetchNearbyPlaces", () => {
     await expect(
       fetchNearbyPlaces({ center: { lat: 0, lon: 0 }, radiusM: 100, fetchImpl }),
     ).rejects.toThrow(/503/);
+  });
+});
+
+describe("fetchArticleByTitle", () => {
+  it("fetches and normalises a single article by exact title", async () => {
+    const fixture = loadFixture("article-by-title.json");
+    const fetchImpl = vi.fn(async () => jsonResponse(fixture)) as unknown as typeof fetch;
+
+    const place = await fetchArticleByTitle({
+      title: "Tampa, Florida",
+      lat: 27.9506,
+      lon: -82.4572,
+      fetchImpl,
+    });
+
+    expect(place).toMatchObject({
+      id: "wikipedia:100200",
+      source: "wikipedia",
+      title: "Tampa, Florida",
+      lat: 27.9506,
+      lon: -82.4572,
+      sourceUrl: "https://en.wikipedia.org/wiki/Tampa,_Florida",
+      externalIds: { wikipediaTitle: "Tampa, Florida", wikidataQid: "Q49233" },
+    });
+    expect(place?.summary).toContain("Tampa is a city on the Gulf Coast");
+  });
+
+  it("does not report a distance — the caller supplies coordinates, not a query center", async () => {
+    const fixture = loadFixture("article-by-title.json");
+    const fetchImpl = vi.fn(async () => jsonResponse(fixture)) as unknown as typeof fetch;
+    const place = await fetchArticleByTitle({ title: "Tampa, Florida", lat: 0, lon: 0, fetchImpl });
+    expect(place?.distanceM).toBeUndefined();
+  });
+
+  it("returns null for a missing or extract-less page", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ query: { pages: [{ pageid: 1, title: "Nonexistent", missing: true }] } }),
+    ) as unknown as typeof fetch;
+
+    const place = await fetchArticleByTitle({ title: "Nonexistent", lat: 0, lon: 0, fetchImpl });
+    expect(place).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import { haversine } from "@hereabouts/core";
 import type { FeedRequest, PlaceEvent } from "@hereabouts/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { buildFeed, type FetchNearbyFn } from "./feed.js";
+import { buildFeed, type FeedDependencies, type NearestSettlementResult } from "./feed.js";
 
 const TRUE_POSITION = { lat: 27.9506, lon: -82.4572 };
 
@@ -11,11 +11,11 @@ function pointAtApproxDistanceEast(distanceM: number) {
   return { lat: TRUE_POSITION.lat, lon: TRUE_POSITION.lon + distanceM / metersPerDegLon };
 }
 
-function place(id: string, approxDistanceM: number): PlaceEvent {
+function place(id: string, source: PlaceEvent["source"], approxDistanceM: number, overrides: Partial<PlaceEvent> = {}): PlaceEvent {
   const { lat, lon } = pointAtApproxDistanceEast(approxDistanceM);
   return {
     id,
-    source: "wikipedia",
+    source,
     sourceId: id,
     title: id,
     lat,
@@ -23,9 +23,12 @@ function place(id: string, approxDistanceM: number): PlaceEvent {
     datePrecision: "unknown",
     summary: "summary",
     sourceExcerpt: "excerpt",
-    sourceUrl: "https://en.wikipedia.org/wiki/Test",
+    sourceUrl: "https://example.org/place",
     license: "cc-by-sa-4.0",
     topics: [],
+    notability: 0.3,
+    externalIds: {},
+    ...overrides,
   };
 }
 
@@ -37,80 +40,165 @@ function baseRequest(overrides: Partial<FeedRequest> = {}): FeedRequest {
     speedMps: 0,
     mode: "walking",
     heardIds: [],
+    topics: [],
     ...overrides,
   };
 }
 
-function mockFetchNearby(impl: (opts: Parameters<FetchNearbyFn>[0]) => Promise<PlaceEvent[]>) {
-  return vi.fn(impl);
+function noopDeps(overrides: Partial<FeedDependencies> = {}): FeedDependencies {
+  return {
+    fetchWikipedia: vi.fn(async () => []),
+    fetchWikidata: vi.fn(async () => []),
+    fetchOverpass: vi.fn(async () => []),
+    fetchNrhp: vi.fn(() => []),
+    fetchNearestSettlement: vi.fn(async () => null),
+    fetchWikipediaArticle: vi.fn(async () => null),
+    ...overrides,
+  };
 }
 
-describe("buildFeed", () => {
-  it("queries the upstream source at a privacy-rounded centroid, padded for the mode radius", async () => {
-    const fetchNearby = mockFetchNearby(async () => []);
-    await buildFeed(baseRequest({ mode: "driving" }), { fetchNearby });
+describe("buildFeed — fetching", () => {
+  it("queries all three live sources at a privacy-rounded centroid, padded for the mode radius", async () => {
+    const deps = noopDeps();
+    await buildFeed(baseRequest({ mode: "driving" }), deps);
 
-    expect(fetchNearby).toHaveBeenCalledTimes(1);
-    const [{ center, radiusM }] = fetchNearby.mock.calls[0]!;
-    expect(radiusM).toBe(5000 + 1500); // driving mode radius + cell padding
+    for (const fetchFn of [deps.fetchWikipedia, deps.fetchWikidata, deps.fetchOverpass]) {
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      const [{ center, radiusM }] = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(radiusM).toBe(5000 + 1500);
+      expect(haversine(TRUE_POSITION, center)).toBeLessThan(1500);
+    }
+  });
 
-    // The query center is a privacy-rounded H3 cell centroid: close to the
-    // true position, but not required to be identical to it.
-    const offsetM = haversine(TRUE_POSITION, center);
-    expect(offsetM).toBeGreaterThanOrEqual(0);
-    expect(offsetM).toBeLessThan(1500);
+  it("calls the NRHP local dataset synchronously with the same centroid/radius", async () => {
+    const deps = noopDeps();
+    await buildFeed(baseRequest({ mode: "walking" }), deps);
+    expect(deps.fetchNrhp).toHaveBeenCalledTimes(1);
+    const [{ radiusM }] = (deps.fetchNrhp as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(radiusM).toBe(400 + 1500);
+  });
+
+  it("degrades gracefully when one live source rejects, keeping results from the others", async () => {
+    const wikipediaPlace = place("wikipedia:1", "wikipedia", 100);
+    const deps = noopDeps({
+      fetchWikipedia: vi.fn(async () => [wikipediaPlace]),
+      fetchWikidata: vi.fn(async () => {
+        throw new Error("WDQS timeout");
+      }),
+    });
+
+    const result = await buildFeed(baseRequest({ mode: "walking" }), deps);
+    expect(result.places.map((p) => p.id)).toEqual(["wikipedia:1"]);
+  });
+});
+
+describe("buildFeed — dedup and ranking", () => {
+  it("clusters the same place from two sources into a single result", async () => {
+    const wikipediaRecord = place("wikipedia:1", "wikipedia", 100, {
+      title: "Tampa Theatre",
+      externalIds: { wikidataQid: "Q1" },
+    });
+    const wikidataRecord = place("wikidata:Q1", "wikidata", 100, {
+      title: "Tampa Theatre",
+      externalIds: { wikidataQid: "Q1" },
+    });
+    const deps = noopDeps({
+      fetchWikipedia: vi.fn(async () => [wikipediaRecord]),
+      fetchWikidata: vi.fn(async () => [wikidataRecord]),
+    });
+
+    const result = await buildFeed(baseRequest({ mode: "walking" }), deps);
+    expect(result.places).toHaveLength(1);
+    expect(result.places[0]?.source).toBe("wikipedia"); // higher source preference wins
   });
 
   it("recomputes real distance from the true position and filters to the mode radius", async () => {
-    const near = place("near", 100);
-    const mid = place("mid", 600);
-    const far = place("far", 2000);
-    const fetchNearby = mockFetchNearby(async () => [near, mid, far]);
+    const near = place("near", "wikipedia", 100);
+    const far = place("far", "wikipedia", 2000);
+    const deps = noopDeps({ fetchWikipedia: vi.fn(async () => [near, far]) });
 
-    const result = await buildFeed(baseRequest({ mode: "walking" }), { fetchNearby });
-
-    // Walking radius is 400m: only "near" (~100m) survives.
+    const result = await buildFeed(baseRequest({ mode: "walking" }), deps);
     expect(result.places.map((p) => p.id)).toEqual(["near"]);
-    expect(result.places[0]?.distanceM).toBeLessThan(400);
-  });
-
-  it("widens what survives filtering as mode radius grows", async () => {
-    const near = place("near", 100);
-    const mid = place("mid", 600);
-    const far = place("far", 2000);
-    const fetchNearby = mockFetchNearby(async () => [near, mid, far]);
-
-    const biking = await buildFeed(baseRequest({ mode: "biking" }), { fetchNearby });
-    expect(biking.places.map((p) => p.id)).toEqual(["near", "mid"]);
-
-    const driving = await buildFeed(baseRequest({ mode: "driving" }), { fetchNearby });
-    expect(driving.places.map((p) => p.id)).toEqual(["near", "mid", "far"]);
-  });
-
-  it("sorts results by real distance, ascending, regardless of source order", async () => {
-    const far = place("far", 2000);
-    const near = place("near", 100);
-    const mid = place("mid", 600);
-    const fetchNearby = mockFetchNearby(async () => [far, near, mid]);
-
-    const result = await buildFeed(baseRequest({ mode: "driving" }), { fetchNearby });
-    expect(result.places.map((p) => p.id)).toEqual(["near", "mid", "far"]);
   });
 
   it("excludes places already heard this trip", async () => {
-    const near = place("near", 100);
-    const mid = place("mid", 600);
-    const fetchNearby = mockFetchNearby(async () => [near, mid]);
+    const heard = place("heard", "wikipedia", 100);
+    const fresh = place("fresh", "wikipedia", 150);
+    const deps = noopDeps({ fetchWikipedia: vi.fn(async () => [heard, fresh]) });
 
-    const result = await buildFeed(baseRequest({ mode: "biking", heardIds: ["near"] }), {
-      fetchNearby,
-    });
-    expect(result.places.map((p) => p.id)).toEqual(["mid"]);
+    const result = await buildFeed(baseRequest({ mode: "walking", heardIds: ["heard"] }), deps);
+    expect(result.places.map((p) => p.id)).toEqual(["fresh"]);
   });
 
-  it("returns an empty feed when nothing is nearby", async () => {
-    const fetchNearby = mockFetchNearby(async () => []);
-    const result = await buildFeed(baseRequest(), { fetchNearby });
+  it("ranks results, most notable/ahead first, rather than returning source order", async () => {
+    const obscure = place("obscure", "wikipedia", 100, { notability: 0.1 });
+    const notable = place("notable", "wikipedia", 100, { notability: 0.9 });
+    const deps = noopDeps({ fetchWikipedia: vi.fn(async () => [obscure, notable]) });
+
+    const result = await buildFeed(baseRequest({ mode: "stationary" }), deps);
+    expect(result.places.map((p) => p.id)).toEqual(["notable", "obscure"]);
+  });
+});
+
+describe("buildFeed — gap filler", () => {
+  const SETTLEMENT: NearestSettlementResult = {
+    label: "Tampa",
+    wikipediaTitle: "Tampa, Florida",
+    lat: 27.95,
+    lon: -82.46,
+  };
+
+  it("falls back to the nearest settlement's article when nothing point-level is in range", async () => {
+    const article = place("wikipedia:tampa", "wikipedia", 0, {
+      title: "Tampa, Florida",
+      summary: "Tampa is a city in Florida.",
+    });
+    const deps = noopDeps({
+      fetchNearestSettlement: vi.fn(async () => SETTLEMENT),
+      fetchWikipediaArticle: vi.fn(async () => article),
+    });
+
+    const result = await buildFeed(baseRequest({ mode: "walking" }), deps);
+    expect(result.places).toHaveLength(1);
+    expect(result.places[0]?.id).toBe("wikipedia:tampa");
+    // Honest framing (PLAN.md §7.6): the summary is prefixed...
+    expect(result.places[0]?.summary).toBe("Around this part of Tampa: Tampa is a city in Florida.");
+    // ...but the grounding substrate (sourceExcerpt) is untouched.
+    expect(result.places[0]?.sourceExcerpt).toBe("excerpt");
+  });
+
+  it("passes the settlement's own coordinates to the article lookup", async () => {
+    const deps = noopDeps({ fetchNearestSettlement: vi.fn(async () => SETTLEMENT) });
+    await buildFeed(baseRequest({ mode: "walking" }), deps);
+    expect(deps.fetchWikipediaArticle).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Tampa, Florida", lat: 27.95, lon: -82.46 }),
+    );
+  });
+
+  it("returns an empty feed when there's no settlement nearby either", async () => {
+    const deps = noopDeps(); // fetchNearestSettlement -> null by default
+    const result = await buildFeed(baseRequest({ mode: "walking" }), deps);
+    expect(result.places).toEqual([]);
+  });
+
+  it("does not re-serve a gap-filler article already heard this trip", async () => {
+    const article = place("wikipedia:tampa", "wikipedia", 0);
+    const deps = noopDeps({
+      fetchNearestSettlement: vi.fn(async () => SETTLEMENT),
+      fetchWikipediaArticle: vi.fn(async () => article),
+    });
+
+    const result = await buildFeed(baseRequest({ mode: "walking", heardIds: ["wikipedia:tampa"] }), deps);
+    expect(result.places).toEqual([]);
+  });
+
+  it("degrades to an empty feed (not a throw) if the settlement lookup itself fails", async () => {
+    const deps = noopDeps({
+      fetchNearestSettlement: vi.fn(async () => {
+        throw new Error("WDQS timeout");
+      }),
+    });
+    const result = await buildFeed(baseRequest({ mode: "walking" }), deps);
     expect(result.places).toEqual([]);
   });
 });

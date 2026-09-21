@@ -45,6 +45,9 @@ export function useFeed(fix: FeedFix | null, mode: Mode, pollMs = 5000): FeedSta
           speedMps: speedMps ?? 0,
           mode,
           heardIds: [...heardIdsRef.current],
+          // No topic-filter UI yet (Milestone 4) — an empty preference is
+          // ranking-neutral (packages/core/rank treats it as "no opinion").
+          topics: [],
         };
         const response = await fetchFeed(request);
         if (!cancelled) {

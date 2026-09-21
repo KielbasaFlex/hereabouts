@@ -1,0 +1,39 @@
+{
+  "head": { "vars": ["item", "itemLabel", "location", "dist", "date", "datePrecision"] },
+  "results": {
+    "bindings": [
+      {
+        "item": { "type": "uri", "value": "http://www.wikidata.org/entity/Q7677026" },
+        "itemLabel": { "type": "literal", "value": "Tampa Theatre", "xml:lang": "en" },
+        "location": {
+          "type": "literal",
+          "value": "Point(-82.459 27.9478)",
+          "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+        },
+        "dist": { "type": "literal", "value": "0.41", "datatype": "http://www.w3.org/2001/XMLSchema#decimal" },
+        "date": {
+          "type": "literal",
+          "value": "1926-01-01T00:00:00Z",
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+        },
+        "datePrecision": { "type": "literal", "value": "9", "datatype": "http://www.w3.org/2001/XMLSchema#int" }
+      },
+      {
+        "item": { "type": "uri", "value": "http://www.wikidata.org/entity/Q12345678" },
+        "itemLabel": { "type": "literal", "value": "Old Waterworks Building", "xml:lang": "en" },
+        "location": {
+          "type": "literal",
+          "value": "Point(-82.4551 27.9491)",
+          "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+        },
+        "dist": { "type": "literal", "value": "0.62", "datatype": "http://www.w3.org/2001/XMLSchema#decimal" },
+        "date": {
+          "type": "literal",
+          "value": "1910-01-01T00:00:00Z",
+          "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+        },
+        "datePrecision": { "type": "literal", "value": "8", "datatype": "http://www.w3.org/2001/XMLSchema#int" }
+      }
+    ]
+  }
+}

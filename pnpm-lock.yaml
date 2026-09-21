@@ -17,6 +17,15 @@ importers:
 
   apps/api:
     dependencies:
+      '@hereabouts/adapter-nrhp':
+        specifier: workspace:*
+        version: link:../../services/adapters/nrhp
+      '@hereabouts/adapter-overpass':
+        specifier: workspace:*
+        version: link:../../services/adapters/overpass
+      '@hereabouts/adapter-wikidata':
+        specifier: workspace:*
+        version: link:../../services/adapters/wikidata
       '@hereabouts/adapter-wikipedia':
         specifier: workspace:*
         version: link:../../services/adapters/wikipedia
@@ -95,12 +104,69 @@ importers:
 
   packages/core:
     dependencies:
+      '@hereabouts/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       fast-xml-parser:
         specifier: ^4.5.0
         version: 4.5.7
       h3-js:
         specifier: ^4.1.0
         version: 4.5.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.4
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.4)
+
+  services/adapters/nrhp:
+    dependencies:
+      '@hereabouts/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
+      '@hereabouts/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.4
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.4)
+
+  services/adapters/overpass:
+    dependencies:
+      '@hereabouts/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
+      '@hereabouts/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.4
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.4)
+
+  services/adapters/wikidata:
+    dependencies:
+      '@hereabouts/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

@@ -595,7 +595,7 @@ Structured logging (pino) of source→result and rank→decision, as the brief r
 |---|---|---|---|
 | 0 | Skeleton | Monorepo, CI, Postgres+PostGIS via compose, `packages/core` geo + mode with tests, GPX simulator replaying a track | Done |
 | 1 | Core loop | Live geolocation, mode detection, Wikipedia GeoSearch, raw excerpts read by browser voice, simulator drives the whole loop end-to-end | Done, with one caveat — see below |
-| 2 | Multi-source | Wikidata + Overpass + NRHP adapters, normalisation, dedup/clustering, ranking, gap-filler cascade with regional decks | Not started |
+| 2 | Multi-source | Wikidata + Overpass + NRHP adapters, normalisation, dedup/clustering, ranking, gap-filler cascade with regional decks | Done, with caveats — see below |
 | 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests | Not started |
 | 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Not started |
 | 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Not started |
@@ -609,6 +609,44 @@ privacy-rounding + real-distance recomputation in the API, and the simulator dri
 client loop — has been verified with a real browser (Playwright) against the running app, up to
 and including the `/feed` call reaching the API and failing gracefully (502, not a crash) at
 exactly the point the network block takes effect.
+
+**Milestone 2 caveats:**
+
+- **All three new adapters are fixture-tested, not live-verified** — same
+  egress block as M1, now also covering `query.wikidata.org` and
+  `overpass-api.de`. Wikidata's fixtures carry an extra caveat beyond
+  "shape unverified": the SPARQL query *syntax* itself (each clause is a
+  documented WDQS pattern, but the composed query has never actually run)
+  — see `services/adapters/wikidata/fixtures/README.md`.
+- **NRHP has no bulk dataset yet.** This environment can't reach
+  `public-nps.opendata.arcgis.com` either, and there's still no Postgres
+  wiring to load a bulk dataset into. `services/adapters/nrhp` ships a
+  small, explicitly-fictional placeholder dataset (`src/dataset.ts`)
+  standing in for the real bulk table, so the query/normalise logic has
+  something to run against. Swapping in the real dataset is a `dataset`
+  parameter, not a rewrite — but the real NPS field-name mapping doesn't
+  exist yet and needs the actual downloaded schema to write.
+- **The gap filler is one practical tier, not the full §7.6 cascade.**
+  It finds the nearest Wikidata-typed settlement (city/town/village) and
+  serves that settlement's own Wikipedia article, honestly framed — not
+  the full neighbourhood → city → county → state widening cascade sketched
+  above. WDQS has no cheap point-in-polygon query, so "nearest settlement"
+  approximates "containing admin area" rather than computing it exactly.
+  Good enough to never go silent; not the richer multi-tier framing
+  eventually worth building once there's a real admin-boundary source.
+- **Verified live, end-to-end, against the real (blocked) network:** with
+  all three live sources correctly failing (403) and gracefully caught,
+  the API fell back to the local NRHP dataset and returned real ranked
+  results with **HTTP 200**, not the 502 an M1-era single-source design
+  would have returned. At a location with nothing in any source, the gap
+  filler's own failure (same network block) degraded to `{"places": []}`
+  at **200**, not a crash. Confirmed both via direct API calls and via a
+  full browser (Playwright) driving the simulator against the running
+  web app.
+- **No Postgres/persistence yet**, same as M1 — every request still
+  refetches live (or, for NRHP, re-filters the in-memory sample). The
+  `coverage_cell` caching design (PLAN.md §4.3) stays a Milestone-3-or-later
+  addition; nothing in M2 depended on it.
 
 MVP acceptance (§14) is evaluated at the end of M5; M6–M7 are productisation.
 

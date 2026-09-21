@@ -1,0 +1,15 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "pages": [
+      {
+        "pageid": 100200,
+        "ns": 0,
+        "title": "Tampa, Florida",
+        "extract": "Tampa is a city on the Gulf Coast of the U.S. state of Florida. Founded in the 19th century, it grew into a major port and cigar-manufacturing center.",
+        "fullurl": "https://en.wikipedia.org/wiki/Tampa,_Florida",
+        "pageprops": { "wikibase_item": "Q49233" }
+      }
+    ]
+  }
+}

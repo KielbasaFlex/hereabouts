@@ -80,11 +80,17 @@ OAuth if volume ever approaches the anonymous tier.
 
 ## 2. Wikidata — SPARQL (WDQS)
 
-- **Status**: planned, Milestone 2 (batch enrichment only)
+- **Status**: **implemented** (`services/adapters/wikidata`), fixture-tested only — see the
+  live-checks note below, which is stronger than usual for this source
 - **Confidence**: **Medium** — endpoint stable, but performance and the 2025 graph split matter
 - **Endpoint**: `https://query.wikidata.org/sparql` (`format=json`)
-- **Use**: items with coordinates (`P625`) plus dates — inception `P571`, dissolved `P576`,
-  point in time `P585`, significant event `P793`; also `P1435` (heritage status) for NRHP linking
+- **Use, as shipped**: items with coordinates (`P625`) plus an **inception date (`P571`) only**.
+  `P576` (dissolved), `P585` (point in time), and `P793` (significant event) are documented
+  candidates for a follow-up, not yet queried — scoped down to one property to keep the first
+  version's SPARQL simple enough to have a real chance of being correct unverified. Also powers
+  a second query, nearest-settlement search (Q486972 human-settlement subclasses) for the
+  Milestone 2 gap filler's regional framing — see `PLAN.md` §7.6 and this adapter's own
+  fixtures/README.md for why that's nearest-search, not true containment.
 
 **Limits**: ~60 s of query time per minute per (IP + User-Agent), bursting to ~120 s; ~30
 errors/min. Hard 60 s per-query timeout. Reports through 2026 describe the public endpoint as
@@ -96,16 +102,26 @@ materially slower than historically.
 `LIMIT`s, bbox-constrained queries, aggressive caching, silent degradation on timeout.
 Self-hosted WDQS or Wikidata dumps if it becomes load-bearing.
 
-**Live checks**: representative bbox query returns inside 60 s; timeout path degrades silently; UA attributed correctly.
+**Live checks — elevated importance for this source**: unlike a REST API, a SPARQL query can be
+syntactically well-formed from documented clauses and still not do what's intended. Every clause
+used here (`SERVICE wikibase:around`, `geof:distance`, the `psv:`/`wikibase:timeValue`/
+`wikibase:timePrecision` path for statement qualifiers, `schema:about`/`schema:isPartOf` for
+sitelinks) is a standard, documented pattern individually — the *composed* query has never run
+against the real endpoint. Paste both query builders' output into
+https://query.wikidata.org/ before trusting this adapter with real traffic; representative bbox
+query returns inside 60 s; timeout path degrades silently; UA attributed correctly.
 
 ---
 
 ## 3. OpenStreetMap — Overpass API
 
-- **Status**: planned, Milestone 2
+- **Status**: **implemented** (`services/adapters/overpass`), fixture-tested only (§16.1)
 - **Confidence**: **High** on policy, **Medium** on specific public-instance quotas (per-instance and informal)
-- **Endpoint**: `https://overpass-api.de/api/interpreter` (dev only); `/api/status` reports remaining quota
-- **Query**: `historic=*`, `memorial=*`, `heritage=*`, `historic:civilization=*` within bbox
+- **Endpoint**: `https://overpass-api.de/api/interpreter` (dev only — the adapter takes an
+  `endpoint` override for production self-hosting); `/api/status` reports remaining quota
+- **Query, as shipped**: `historic=*`, `memorial=*`, `heritage=*` within an `around:` radius
+  (not yet `historic:civilization=*`, and not yet the bbox form — `around` was simpler to
+  compose correctly for a point-radius query, which is what every caller actually has)
 
 **Limits and policy — the decisive point**: public Overpass instances explicitly discourage
 applications that rely on them as a backend, and direct heavy users to planet dumps or their
@@ -121,7 +137,8 @@ own instance. Per-IP slot quotas, ~12 GiB memory ceiling, load shedding under pr
 > table is a *Derivative Database* — share-alike would bite only if we publicly distribute the
 > database itself, which we don't. Route packs ship produced works plus attribution, not raw extracts.
 
-**Live checks**: `/api/status` parses; a historic-tag bbox query returns expected elements; 429/504 backoff verified.
+**Live checks**: `/api/status` parses; the `around`-based query returns expected elements with
+the tag names this adapter reads; 429/504 backoff verified.
 
 ---
 
@@ -159,7 +176,11 @@ calls? Is location matchable well enough to be worth the complexity? A "no" to t
 
 ## 5. National Register of Historic Places (NPS)
 
-- **Status**: planned, Milestone 2
+- **Status**: **adapter interface implemented** (`services/adapters/nrhp`), but running against
+  a small, explicitly-fictional **placeholder dataset**, not the real bulk download — this
+  environment can't reach `public-nps.opendata.arcgis.com` either (§16.1), and there's still no
+  Postgres to load a real bulk dataset into. `queryNearby`'s spatial-filter/normalise logic is
+  real and tested; the data it's tested against is not.
 - **Confidence**: **Medium** — data is definitely available; exact access path to confirm
 - **Access**: two routes —
   1. **Bulk spatial download** (preferred): NRHP public dataset via NPS open data / ArcGIS Hub
@@ -177,7 +198,11 @@ absence as a data bug, and must never attempt to reconstruct withheld locations.
 **Licence**: **US Government public domain**. No attribution obligation; we credit NPS anyway.
 
 **Live checks**: current download URL and format; record count; coordinate quality; that the
-listing-significance field can drive `notability`.
+listing-significance field can drive `notability`; and — new since the adapter interface now
+exists — the real field-name mapping into this adapter's `NrhpRecord` shape (`refNumber`,
+`name`, `lat`, `lon`, `listedYear`, `significance`), which hasn't been written yet because this
+build has never seen the real dataset's actual schema. See
+`services/adapters/nrhp/fixtures/README.md`.
 
 ---
 

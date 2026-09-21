@@ -1,0 +1,18 @@
+{
+  "head": { "vars": ["item", "itemLabel", "location", "dist", "articleTitle"] },
+  "results": {
+    "bindings": [
+      {
+        "item": { "type": "uri", "value": "http://www.wikidata.org/entity/Q49233" },
+        "itemLabel": { "type": "literal", "value": "Tampa", "xml:lang": "en" },
+        "location": {
+          "type": "literal",
+          "value": "Point(-82.4572 27.9506)",
+          "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+        },
+        "dist": { "type": "literal", "value": "0.05", "datatype": "http://www.w3.org/2001/XMLSchema#decimal" },
+        "articleTitle": { "type": "literal", "value": "Tampa, Florida" }
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API",
+  "elements": [
+    {
+      "type": "node",
+      "id": 123456789,
+      "lat": 27.94851,
+      "lon": -82.45772,
+      "tags": {
+        "historic": "monument",
+        "name": "Confederate Memorial",
+        "wikidata": "Q99999999",
+        "start_date": "1911"
+      }
+    },
+    {
+      "type": "way",
+      "id": 987654321,
+      "center": { "lat": 27.9502, "lon": -82.4561 },
+      "tags": {
+        "historic": "building",
+        "heritage": "2",
+        "name": "Old Federal Courthouse",
+        "wikipedia": "en:Old Federal Courthouse (Tampa)"
+      }
+    },
+    {
+      "type": "node",
+      "id": 111222333,
+      "lat": 27.951,
+      "lon": -82.4555,
+      "tags": {
+        "historic": "wayside_cross"
+      }
+    }
+  ]
+}
