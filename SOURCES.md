@@ -21,6 +21,29 @@ must pass before that adapter is considered done.
 | **Medium** | Documented but recently changed, or limits are informal/unpublished |
 | **Low** | Known recent migration or reported access friction; treat as unproven |
 
+## Egress allowlist (for this environment)
+
+Five hosts, all plain HTTPS/443, would unblock live verification and fixture recording for
+every adapter in this document. This is a **development-time** allowlist — production traffic
+for Overpass and OSRM must go through self-hosted infrastructure regardless (§16.3 in
+`PLAN.md`), so allowlisting here doesn't change that production plan.
+
+| Host | Needed for |
+|---|---|
+| `en.wikipedia.org` | GeoSearch + extracts (§1) — the M1 exit criterion |
+| `query.wikidata.org` | WDQS SPARQL endpoint (§2) |
+| `overpass-api.de` | Overpass API, dev instance only (§3) |
+| `www.loc.gov` | loc.gov JSON API / Chronicling America, deferred to M4+ (§4) |
+| `public-nps.opendata.arcgis.com` | NRHP bulk spatial dataset download (§5) — one-off, not a runtime dependency |
+
+Not requested: `overpass-api.de` and the OSRM demo server are single-purpose dev/fixture
+endpoints by design (their own usage policies forbid production reliance — §7), so nothing
+else needs to be added once self-hosted routing/Overpass are stood up later.
+
+If allowlisting isn't possible in this environment, the fallback in `PLAN.md` §16.1 (local
+Claude Code, or fixture-first development with locally-recorded fixtures committed back) still
+applies — M0 needs none of these hosts and isn't waiting on this.
+
 ---
 
 ## 1. Wikipedia — GeoSearch + Extracts
@@ -43,9 +66,9 @@ Hereabouts/0.1 (https://hereabouts.app; contact@hereabouts.app)
 
 **Licence**: CC BY-SA 4.0. Attribution: article title + link + "Wikipedia, CC BY-SA 4.0".
 
-> **ShareAlike caveat — see `PLAN.md` §16.2.** Grounded narration derived from BY-SA text may
-> itself be a derivative work subject to ShareAlike. This is the open licensing question of the
-> project and needs a decision before the M3 story cache fills.
+> **Facts-only posture — see `PLAN.md` §16.2.** Narration draws facts from this excerpt but is
+> generated and validated (n-gram overlap check) to avoid mirroring its phrasing, so it doesn't
+> rely on being a BY-SA derivative. Attribution ships on every card regardless.
 
 **Design rules**: single shared UA constant; per-source token bucket well under the anonymous
 ceiling; cache by H3 cell (§4.3) so repeat users in an area cost zero upstream calls; add
@@ -67,8 +90,7 @@ OAuth if volume ever approaches the anonymous tier.
 errors/min. Hard 60 s per-query timeout. Reports through 2026 describe the public endpoint as
 materially slower than historically.
 
-**Licence**: **CC0** — no attribution obligation. We credit it anyway, and its CC0 status makes
-it valuable under licensing posture (b) in `PLAN.md` §16.2.
+**Licence**: **CC0** — no attribution obligation. We credit it anyway.
 
 **Design rules**: **never in the request path.** Batch enrichment worker only, tight
 `LIMIT`s, bbox-constrained queries, aggressive caching, silent degradation on timeout.
@@ -153,7 +175,6 @@ calls? Is location matchable well enough to be worth the complexity? A "no" to t
 absence as a data bug, and must never attempt to reconstruct withheld locations.
 
 **Licence**: **US Government public domain**. No attribution obligation; we credit NPS anyway.
-Its PD status makes it a cornerstone under licensing posture (b).
 
 **Live checks**: current download URL and format; record count; coordinate quality; that the
 listing-significance field can drive `notability`.

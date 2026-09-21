@@ -46,7 +46,7 @@ is an input to that, not the answer. §7 builds on this.
 | Map | MapLibre GL JS + **Protomaps PMTiles** | See §2.3 — the only option that legally survives offline |
 | Auth | Auth.js (email + OAuth) | Standard, self-hosted, no vendor lock |
 | Billing | Stripe Billing + Customer Portal | Mandated |
-| LLM | Claude API, `claude-opus-5` | See §8.4 for model/cost reasoning and the tuning lever |
+| LLM | Claude API — `claude-sonnet-5` narration (default), `claude-haiku-4-5-20251001` grounding judge | See §8.4 for model/cost reasoning; `claude-opus-5` is the eval-gated fallback |
 | Tests | Vitest + Playwright | Fast unit core; Playwright for the PWA loop |
 
 ### 2.1 Why a pure, I/O-free `packages/core`
@@ -341,10 +341,16 @@ that delivers "no silence > 15 s" — silence is a cache-miss bug, and the deck 
 
 ### 8.1 Model and parameters
 
-`claude-opus-5` via the Anthropic TypeScript SDK. Adaptive thinking
+**Default: `claude-sonnet-5`**, via the Anthropic TypeScript SDK. Adaptive thinking
 (`thinking: { type: "adaptive" }`), `output_config: { effort: "low" }` — short grounded
 rewriting is not a reasoning-heavy task, and effort is the first quality/cost lever we tune
-with measurement (§8.4) rather than guesswork.
+with measurement (§8.4) rather than guesswork. This is a per-call parameter, not an
+architectural commitment: the story cache key (§4.4) includes `model`, so nothing about
+switching a length bucket to a different model later is a migration.
+
+`claude-opus-5` is kept as the **eval-gated ceiling model** — used only where the M3 eval
+(§8.4) shows Sonnet failing the quality bar for a specific topic or length bucket, not as a
+manual escape hatch.
 
 ### 8.2 Length scaling
 
@@ -388,11 +394,22 @@ cheapest and most reliable layer):
   geometry. Phrases like "on your left" / "just ahead" are permitted **only** under
   `directional`. A regional gap-filler story containing "right here" fails. This makes the
   brief's spatial-accuracy rule mechanically enforced instead of prompt-dependent.
+- *N-gram overlap check* (facts-only posture, §16.2): the narration must not lift the source's
+  phrasing. Tokenise both narration and source excerpt, and fail any narration containing a
+  contiguous n-gram (n=7, case/punctuation-insensitive) that also appears verbatim in the
+  excerpt, excluding proper nouns, dates and a stoplist of common historical-register phrases
+  ("was built in", "is listed on the", …) which would otherwise produce false positives on
+  facts rather than expression. Threshold and n are config, tuned against the eval set —
+  too loose lets copied phrasing through, too tight forces awkward paraphrase of standard
+  factual constructions.
 - *Length check*: §8.2.
 
-**Layer 3 — LLM judge.** `claude-haiku-4-5` with structured output, asked only: does any
-sentence assert something absent from the excerpt? Cheap, and it runs once per cache entry,
-not per listen.
+**Layer 3 — LLM judge.** `claude-haiku-4-5-20251001` with structured output, asked two
+things: does any sentence assert something absent from the excerpt, and does the narration
+restate the source's *facts* in its own words rather than lightly editing the source's
+*sentences*. Cheap, and it runs once per cache entry, not per listen. Its adequacy for the
+second question is itself part of the M3 eval (§8.4) — if it can't reliably catch
+near-verbatim paraphrase, the n-gram check above is the backstop of record, not the judge.
 
 Failure path: regenerate once → on second failure, fall back to a **template extractive
 card** (title, date, verbatim excerpt, link) which is grounded by construction. We degrade to
@@ -401,14 +418,15 @@ boring; we never degrade to invented.
 ### 8.4 Cost — why the shared cache is the whole ballgame
 
 Per generated story: ~1,500 input tokens (cached system prompt + excerpt) and ~150 output
-tokens. At Opus 5 rates ($5/MTok in, $25/MTok out) that's **~$0.011 per story**, before
-caching and batching.
+tokens. At Sonnet 5 rates ($2/MTok in, $10/MTok out) that's **~$0.0045 per story**
+uncached — roughly 2.4× cheaper than the Opus 5 default this plan originally specced, before
+caching and batching are even applied.
 
-Then the multipliers, which are what make this viable:
+Then the multipliers, which are what make this viable regardless of which model is in play:
 
 - **Shared global cache** (§4.4) — generated once per (place, length), served to every user
-  forever. Cost is proportional to *places covered*, not to usage. 100k places × 3 lengths ≈
-  **$3.3k one-time**, not per-month.
+  forever. Cost is proportional to *places covered*, not to usage. At Sonnet rates, 100k
+  places × 3 lengths ≈ **~$1.4k one-time**, not per-month.
 - **Prompt caching** — the system prompt (voice rules, grounding contract, spatial frame
   vocabulary) is stable and goes before the breakpoint; the volatile excerpt goes after.
   Cache reads bill at ~10% of input. Requires the stable prefix to clear the model's minimum
@@ -419,11 +437,16 @@ Then the multipliers, which are what make this viable:
 Live generation is therefore the exception, not the rule — which is also what keeps p95
 latency sane.
 
-**Decision for you (§17):** I've specced `claude-opus-5` as the default and I won't quietly
-downgrade to save money — that's your call, not mine. If you want it cheaper, the honest way
-is to hill-climb an eval: build a ~50-story eval set with the §8.3 validators as the grader,
-then measure `claude-sonnet-5` ($2/$10) and low-effort variants against it. That's a Milestone 3
-sub-task if you want it.
+**M3 sub-task — eval hill-climb (confirms Sonnet, doesn't just chase cheaper).** Build a
+~50-story eval set spanning topics, length buckets and difficult-history cases, graded by the
+§8.3 validators plus a human-reviewed voice rubric (§8.5). Run `claude-sonnet-5` against it at
+`effort: low` and `medium`, with `claude-opus-5` as the quality ceiling for comparison. Two
+outcomes, both actionable: Sonnet holds the bar everywhere → it's the model, full stop, and
+Opus is dead code we don't call. Sonnet fails on a specific bucket (a difficult-history topic
+is the likely candidate) → that bucket routes to Opus by cache-key model override, not the
+whole product. Same eval separately scores whether `claude-haiku-4-5-20251001` reliably
+catches near-verbatim paraphrase as the Layer 3 judge (§8.3); if it doesn't, the judge's
+paraphrase check is dropped and the deterministic n-gram check carries that job alone.
 
 ### 8.5 Voice
 
@@ -613,32 +636,35 @@ criterion of a live GeoSearch call.
 
 This needs your decision; it isn't something I can resolve in code.
 
-### 16.2 Licensing: CC BY-SA ShareAlike may attach to our narration
+### 16.2 Licensing: resolved — facts-only extraction, not textual derivation
 
-The most consequential legal question in the project, and much cheaper to decide now than after
-M3 fills a cache with hundreds of thousands of stories.
+Wikipedia text is CC BY-SA 4.0. §8.3 already required strict grounding — no fact in the
+narration may be absent from the source excerpt. The open question was whether staying that
+faithful to the source's *content* also meant inheriting the source's *expression*, which would
+pull the ShareAlike term onto our narration and sit awkwardly beside a paid premium tier.
 
-Wikipedia text is CC BY-SA 4.0. Our narration is produced *from* that text and is required by
-§8.3 to stay strictly faithful to it. A close, grounded retelling has a real chance of being a
-derivative work, which would put the narration itself under BY-SA's ShareAlike term —
-attribution plus licensing our generated stories under CC BY-SA. That sits awkwardly beside a
-paid premium tier built on a proprietary story cache. (It doesn't forbid charging — BY-SA
-permits commercial use — but it would mean the stories themselves can be redistributed by
-anyone under the same licence.)
+**Decision: facts-only.** We build on the ordinary copyright distinction between facts (not
+protected) and expression (protected) rather than on any posture toward BY-SA. Grounding
+constrains narration to facts stated in the excerpt; it does not, and must not, constrain
+narration to the excerpt's *sentences*. Concretely:
 
-I'm flagging it, not resolving it; you're better placed than I am to judge it. Three postures:
+- The generation prompt instructs the model to extract facts and retell them in the product's
+  own voice (§8.5), never to lightly edit source sentences — this is a prompt-level rule,
+  not just an aspiration, because it's also mechanically checked next.
+- The new **n-gram overlap validator** (§8.3, Layer 2) makes this a hard gate rather than a
+  style preference: narration sharing a source's phrasing beyond common factual boilerplate
+  fails validation and regenerates, same as an invented fact would.
+- Attribution and source links stay on every card regardless — attributing sources we drew
+  facts from is table stakes for an app called "Hereabouts," not a licence obligation we're
+  trying to minimize.
+- The `license` column (§4.1) and per-story licence provenance (§4.4) stay in the schema
+  exactly as designed. This posture is a product policy, not a schema constraint, so nothing
+  here forecloses posture (b) — segmenting premium content by source licence — later if the
+  facts-only line ever looks thinner than expected for a specific source.
 
-- **(a) Accept and embrace** — publish Wikipedia-derived narration under CC BY-SA with
-  attribution, and differentiate premium on voice, offline, routing and trip log rather than
-  on text exclusivity. Lowest risk, and honestly the most natural fit for an open-data product.
-- **(b) Segment by licence** — the `license` column in §4.1 exists for exactly this. Premium
-  exclusivity is built only on public-domain sources (NRHP, LoC), while BY-SA sources feed the
-  free tier under BY-SA. More engineering, preserves a proprietary moat.
-- **(c) Take advice** and set the policy deliberately.
-
-Design hedge shipped regardless: per-record licence tracking, per-story licence provenance,
-and attribution rendered on every card — so whichever posture you choose is a policy change,
-not a migration.
+This is a product-policy call, not legal advice, and it doesn't touch OSM's ODbL (a database
+right, addressed separately in §16.3 by not redistributing the raw database) or the
+public-domain sources, which were never in question.
 
 ### 16.3 Other risks
 
@@ -657,10 +683,13 @@ not a migration.
 
 ## 17. What I need from you
 
-1. **Approve or amend this plan** — the brief's pre-code gate.
-2. **§16.1 egress** — pick option 1, 2 or 3. This one genuinely blocks M1.
-3. **§16.2 licensing posture** — (a), (b) or (c). Cheap now, expensive after M3.
-4. **Model/cost** — confirm `claude-opus-5` as the default, or say you want the eval-driven
-   cost comparison as an M3 sub-task.
+Resolved: model default is `claude-sonnet-5` with an M3 eval hill-climb against `claude-opus-5`
+(§8.4); licensing posture is facts-only extraction with an n-gram overlap gate (§16.2).
+
+Outstanding:
+
+1. **§16.1 egress** — the exact host list to allowlist is in `SOURCES.md` under "Egress
+   allowlist." Once that's set (or you've confirmed local Claude Code as the fallback), M1 is
+   unblocked. M0 doesn't need it and is proceeding regardless.
 
 On approval I'll start at Milestone 0 and work through in order.
