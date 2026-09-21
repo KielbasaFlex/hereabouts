@@ -40,6 +40,7 @@ describe("fetchNearbyItems", () => {
     expect(places[0]?.distanceM).toBeCloseTo(410, 0); // 0.41 km -> 410 m
     expect(places[0]?.sourceExcerpt).toContain("Tampa Theatre");
     expect(places[0]?.sourceExcerpt).toContain("1926");
+    expect(places[0]?.topics).toContain("arts-culture"); // classified from the "Theatre" label
 
     // Second binding has precision 8 (decade).
     expect(places[1]).toMatchObject({ datePrecision: "decade", eraText: "the 1910s" });

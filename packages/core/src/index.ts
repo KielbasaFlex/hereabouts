@@ -6,3 +6,4 @@ export * from "./dedup/index.js";
 export * from "./rank/index.js";
 export * from "./spatial-frame/index.js";
 export * from "./grounding/index.js";
+export * from "./topics/index.js";

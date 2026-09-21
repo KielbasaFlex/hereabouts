@@ -597,7 +597,7 @@ Structured logging (pino) of source→result and rank→decision, as the brief r
 | 1 | Core loop | Live geolocation, mode detection, Wikipedia GeoSearch, raw excerpts read by browser voice, simulator drives the whole loop end-to-end | Done, with one caveat — see below |
 | 2 | Multi-source | Wikidata + Overpass + NRHP adapters, normalisation, dedup/clustering, ranking, gap-filler cascade with regional decks | Done, with caveats — see below |
 | 3 | Storytelling | Claude generation, citations, all three grounding layers, length scaling, shared cache, eval set + voice tests | Done, with caveats — see below |
-| 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Not started |
+| 4 | Surface | Text cards with citation highlighting, MapLibre map view, topic filters, trip log | Done, with caveats — see below |
 | 5 | Offline | Routing, corridor sampling, Batch pre-generation, PMTiles slice, service worker + IndexedDB, offline playback test green | Not started |
 | 6 | Commerce | Auth, Stripe, premium TTS, metering, rate limits, configurable tiers | Not started |
 | 7 | Native-readiness | Written review of what Capacitor needs; spike proving background location + audio against unmodified `packages/core` | Not started |
@@ -698,6 +698,57 @@ exactly the point the network block takes effect.
   narration and its "didn't pass grounding" note, with zero console
   errors and no silent playback gap — the same "never go silent"
   guarantee as M1/M2, now covering the new `/story` call too.
+
+**Milestone 4 caveats:**
+
+- **No source adapter fetches a real category/type field** (Wikipedia
+  categories, Wikidata P31, would each be another live-API surface this
+  environment can't verify any more than the ones already unverified —
+  §16.1). Topic filters instead classify from text every adapter already
+  has (`title` + `summary`/`sourceExcerpt`) via a small fixed keyword
+  vocabulary (`packages/core/src/topics`) — approximate by design, the same
+  tradeoff `packages/core/grounding`'s entity check makes, and unit-verified
+  per adapter (each of the four now asserts a real classified topic against
+  its own fixtures, not just that the field exists). It's a ranking
+  *preference*, never a hard filter, so misclassification only shifts
+  ordering, never hides a place.
+- **The map's tile/style host is unreachable from this environment** — every
+  free vector-tile host tried (OpenFreeMap, the MapLibre demo style, CARTO)
+  gets the same 403-at-CONNECT treatment as `en.wikipedia.org`/
+  `query.wikidata.org`/`overpass-api.de` (see `SOURCES.md`'s update). Unlike
+  those three, though, this was never going to be a self-hosted-at-launch
+  concern either way (§16.3's precedent for Overpass/OSRM) — `MapView`'s
+  style URL is a `VITE_MAP_STYLE_URL` override specifically so a real
+  deployment can point at a self-hosted or paid style without a code
+  change. **Verified live, in a real browser:** MapLibre initializes, its
+  own `error` event fires on the blocked tile fetch, and the component
+  shows an inline "map tiles unavailable" note — confirmed via Playwright
+  against this exact blocked network — rather than the app crashing or the
+  rest of the page (text card, controls, trip log) being affected. Tile
+  *rendering* itself has never been seen.
+- **Citation highlighting has never rendered a real citation.** The
+  `buildHighlightedSegments`/`<mark>` path is unit-tested against
+  hand-built `Citation` objects (`apps/web/src/citations.test.ts`), but
+  since no real Anthropic response has ever come back in this environment
+  (Milestone 3's own caveat), every live run so far has produced a
+  `template_fallback` story with zero citations — the highlighting code
+  path is real and tested, but has only been exercised by fixtures, not a
+  live citation from the model.
+- **The trip log is entirely client-local** (`localStorage`), not the
+  server-backed `trip`/`trip_event` table PLAN.md §4.6 describes — there's
+  still no account system (that's Milestone 6) for it to belong to. It
+  meets the same privacy bar regardless (strictly opt-in, one-tap JSON/
+  GeoJSON export, a hard delete that clears entries without touching the
+  opt-in choice), verified live via Playwright: enabling it, hearing two
+  places, exporting a real JSON file via a real browser download, and
+  reading back the recorded entries. What it can't do yet: sync across
+  devices, or get swept up in an account-deletion cascade, because there's
+  no account for it to be tied to.
+- **The web bundle is code-split around MapLibre** (`React.lazy` +
+  dynamic `import()`), consistent with Milestone 1's h3-js bundle-size
+  fix — the main chunk dropped from 1.14 MB to 335 KB, with MapLibre's own
+  ~800 KB in a separate chunk loaded only once the simulator/live tracking
+  actually starts.
 
 MVP acceptance (§14) is evaluated at the end of M5; M6–M7 are productisation.
 

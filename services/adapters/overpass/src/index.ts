@@ -1,5 +1,6 @@
 import type { PlaceEvent } from "@hereabouts/contracts";
 import { haversine, type LatLon } from "@hereabouts/core/geo";
+import { classifyTopics } from "@hereabouts/core/topics";
 
 /**
  * OpenStreetMap via Overpass API adapter (PLAN.md §6, SOURCES.md §3):
@@ -144,7 +145,11 @@ export async function fetchNearbyPlaces(options: FetchNearbyOptions): Promise<Pl
       sourceExcerpt: excerpt,
       sourceUrl: `https://www.openstreetmap.org/${osmId}`,
       license: "odbl-1.0",
-      topics: [],
+      // Classified from `excerpt` rather than the raw tags directly — the
+      // excerpt already renders each tag's value as English ("historic=fort"
+      // etc.), so the same keyword vocabulary that reads Wikipedia/Wikidata
+      // prose works here too without a separate tag-to-topic mapping.
+      topics: classifyTopics(`${title} ${excerpt}`),
       notability: estimateNotability(Object.keys(tags).length),
       externalIds: {
         osmId,

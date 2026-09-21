@@ -14,7 +14,8 @@
     "./dedup": "./src/dedup/index.ts",
     "./rank": "./src/rank/index.ts",
     "./spatial-frame": "./src/spatial-frame/index.ts",
-    "./grounding": "./src/grounding/index.ts"
+    "./grounding": "./src/grounding/index.ts",
+    "./topics": "./src/topics/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

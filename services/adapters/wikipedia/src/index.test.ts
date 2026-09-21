@@ -69,8 +69,10 @@ describe("fetchNearbyPlaces", () => {
     expect(places[0]?.summary).toBe(places[0]?.sourceExcerpt);
     expect(places[0]?.notability).toBeGreaterThan(0);
     expect(places[0]?.notability).toBeLessThanOrEqual(0.6);
+    expect(places[0]?.topics).toContain("arts-culture"); // "Tampa Theatre"
 
     expect(places[1]?.title).toBe("Tampa City Hall");
+    expect(places[1]?.topics).toContain("government-civic"); // "City Hall"
     // No pageprops in the fixture for this page: wikidataQid is simply absent.
     expect(places[1]?.externalIds.wikidataQid).toBeUndefined();
     expect(places[1]?.externalIds.wikipediaTitle).toBe("Tampa City Hall");

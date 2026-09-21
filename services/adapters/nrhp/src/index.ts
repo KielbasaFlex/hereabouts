@@ -1,5 +1,6 @@
 import type { PlaceEvent } from "@hereabouts/contracts";
 import { haversine, type LatLon } from "@hereabouts/core/geo";
+import { classifyTopics } from "@hereabouts/core/topics";
 import { SAMPLE_NRHP_RECORDS, type NrhpRecord } from "./dataset.js";
 
 /**
@@ -68,7 +69,7 @@ export function queryNearby(options: QueryNearbyOptions): PlaceEvent[] {
         // scheme — see fixtures/README.md.
         sourceUrl: `https://npgallery.nps.gov/NRHP/AssetDetail?assetID=${encodeURIComponent(record.refNumber)}`,
         license: "public-domain-usgov",
-        topics: [],
+        topics: classifyTopics(`${record.name} ${record.significance ?? ""}`),
         notability: estimateNotability(record),
         externalIds: { nrhpRefNumber: record.refNumber },
         isRegional: false,

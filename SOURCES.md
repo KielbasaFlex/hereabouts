@@ -52,6 +52,16 @@ here. Nothing needs to change about network policy for that piece; setting the e
 variable is sufficient once a key exists. See `services/storytelling/eval/README.md` for exactly
 what running the eval set will verify once it does.
 
+**Update from Milestone 4:** every free vector-tile/style host tried for `apps/web`'s new map
+view — `tiles.openfreemap.org`, `demotiles.maplibre.org`, `basemaps.cartocdn.com` — gets the same
+403-at-CONNECT this environment gives the five content-source hosts above. Unlike those, this was
+never going to be a hosted-third-party dependency at launch anyway (§16.3's precedent for
+Overpass/OSRM applies equally to map tiles), so it doesn't change this document's egress-allowlist
+ask — a self-hosted or paid tile provider's URL is a `VITE_MAP_STYLE_URL` environment variable in
+production, not a code change. `registry.npmjs.org` **is** reachable, for what it's worth — the
+`maplibre-gl` package itself installed and built normally; only its runtime tile requests are
+blocked.
+
 ---
 
 ## 1. Wikipedia — GeoSearch + Extracts

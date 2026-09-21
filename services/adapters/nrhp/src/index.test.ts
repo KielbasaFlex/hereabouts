@@ -63,6 +63,21 @@ describe("queryNearby", () => {
     expect(place?.notability).toBeGreaterThan(0.6); // boosted by having a significance note
   });
 
+  it("classifies topics from the record's name and significance text", () => {
+    const dataset: NrhpRecord[] = [
+      {
+        refNumber: "T0004",
+        name: "Old County Courthouse",
+        lat: CENTER.lat,
+        lon: CENTER.lon,
+        significance: "A rare surviving 19th-century schoolhouse annex.",
+      },
+    ];
+    const [place] = queryNearby({ center: CENTER, radiusM: 100, dataset });
+    expect(place?.topics).toContain("government-civic");
+    expect(place?.topics).toContain("education");
+  });
+
   it("accepts an injected dataset instead of the bundled placeholder sample", () => {
     const customDataset: NrhpRecord[] = [{ refNumber: "CUSTOM", name: "Custom Site", lat: CENTER.lat, lon: CENTER.lon }];
     const places = queryNearby({ center: CENTER, radiusM: 100, dataset: customDataset });

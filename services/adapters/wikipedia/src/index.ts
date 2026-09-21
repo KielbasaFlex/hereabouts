@@ -1,4 +1,5 @@
 import type { PlaceEvent } from "@hereabouts/contracts";
+import { classifyTopics } from "@hereabouts/core/topics";
 
 /**
  * Wikipedia GeoSearch + extracts adapter (PLAN.md §6, SOURCES.md §1).
@@ -177,7 +178,7 @@ export async function fetchNearbyPlaces(options: FetchNearbyOptions): Promise<Pl
       sourceExcerpt: extract,
       sourceUrl,
       license: "cc-by-sa-4.0",
-      topics: [],
+      topics: classifyTopics(`${result.title} ${extract}`),
       notability: estimateNotability(extract.length),
       externalIds: {
         wikipediaTitle: result.title,
@@ -249,7 +250,7 @@ export async function fetchArticleByTitle(options: FetchArticleByTitleOptions): 
     sourceExcerpt: extract,
     sourceUrl,
     license: "cc-by-sa-4.0",
-    topics: [],
+    topics: classifyTopics(`${page.title} ${extract}`),
     notability: estimateNotability(extract.length),
     externalIds: {
       wikipediaTitle: page.title,

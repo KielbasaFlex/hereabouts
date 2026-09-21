@@ -1,4 +1,5 @@
 import type { PlaceEvent, Story } from "@hereabouts/contracts";
+import { buildHighlightedSegments } from "../citations";
 import { formatDistance } from "../format";
 
 const LICENSE_LABELS: Record<PlaceEvent["license"], string> = {
@@ -77,7 +78,11 @@ export function TextCard({
       {hasDistinctExcerpt && (
         <details className="text-card__excerpt">
           <summary>Source excerpt</summary>
-          <p>{place.sourceExcerpt}</p>
+          <p>
+            {buildHighlightedSegments(place.sourceExcerpt, story?.citations ?? []).map((segment, i) =>
+              segment.cited ? <mark key={i}>{segment.text}</mark> : <span key={i}>{segment.text}</span>,
+            )}
+          </p>
         </details>
       )}
 

@@ -9,15 +9,12 @@ documents, kept current as decisions are made.
 
 ## Status
 
-**Milestone 3: storytelling.** On top of Milestone 2's multi-source `/feed`, a new `/story`
-endpoint (`services/storytelling`) turns a selected place into a length-scaled, grounded
-narration: Claude generates it with citations tied back to the source excerpt, three grounding
-layers check it (deterministic numerals/entities/vagueness/spatial-language/n-gram-overlap/length
-checks, then an LLM judge for unsupported claims and source-mirroring), a failed narration
-regenerates once and then degrades to an extractive template card, and successful narrations are
-cached by place/mode/prompt-version so repeat listeners don't re-pay for generation. See
-`PLAN.md` §15 for the full milestone list and its Milestone 3 caveats section for exactly what's
-simplified or unverified.
+**Milestone 4: surface.** On top of Milestone 3's `/story` generation, the web app now has topic
+filters (a real classifier, not a stub — see below), a MapLibre map view of the live/simulated
+position and nearby candidates, citation highlighting in the text card's expandable source
+excerpt, and a client-local trip log with JSON/GeoJSON export and a hard delete. See `PLAN.md`
+§15 for the full milestone list and its Milestone 4 caveats section for exactly what's simplified
+or unverified.
 
 **Known gaps (all explicitly flagged in `PLAN.md`/`SOURCES.md`, not silent):**
 
@@ -36,18 +33,32 @@ simplified or unverified.
   network-blocked; see `SOURCES.md`'s Milestone 3 update.
 - The shared story cache is in-memory only — no Postgres persistence yet, so it resets on every
   server restart, same as `/feed`'s lack of persistence in M1/M2.
+- **Topic filters classify from text, not a real category field** — none of the four adapters
+  fetch a live category/type API (that's another unverifiable live surface, same as the sources
+  above), so `packages/core/src/topics` keyword-matches `title`/`summary` text instead. A ranking
+  preference, never a hard filter, so a miss just doesn't boost a place rather than hiding it.
+- **This environment's egress proxy also blocks every free map-tile host tried** (OpenFreeMap,
+  the MapLibre demo style, CARTO) — the map view is verified live to degrade gracefully (an inline
+  "tiles unavailable" note, no crash) rather than to actually render tiles. `VITE_MAP_STYLE_URL`
+  swaps in a real style with no code change.
+- **The trip log is client-local (`localStorage`) only** — there's no account system yet (M6) for
+  a server-backed version to belong to, so it can't sync across devices.
+- Citation highlighting in the text card is unit-tested but has never rendered a *real* citation
+  live, since no real model response has been seen in this environment (same root cause as the
+  `ANTHROPIC_API_KEY` gap above).
 
 **What *has* been verified, live, against the real (blocked) network:** with all three live feed
 sources correctly failing and being caught, `/feed` fell back to the local NRHP dataset and
 returned real ranked results at **HTTP 200** — not a failure. At a location with nothing
-anywhere, it degraded to an empty feed, still at 200. Separately, booting the API with a real
+anywhere, it degraded to an empty feed, still at 200. Booting the API with a real
 `new Anthropic()` client and calling `/story` showed the SDK's own client-side auth check reject
 the request (no key configured), `buildStory` correctly treat that as a failed attempt, retry
-once, and degrade to the grounded template fallback at **HTTP 200** rather than a 502 — the same
-"never fail the request" design as `/feed`, now proven against the storytelling path's own real
-failure mode. Both paths, plus the full narration UI (loading state, fallback note, citation
-count), were also confirmed via a full browser (Playwright) driving the simulator against the
-running web app.
+once, and degrade to the grounded template fallback at **HTTP 200** rather than a 502. A full
+browser (Playwright) driving the simulator against the running web app confirmed: selecting topic
+filter chips actually changes the `topics` array in the live `/feed` request payload; the map
+initializes, hits the same blocked-network wall, and shows its fallback note without crashing the
+rest of the page; and enabling the trip log, hearing two places, and exporting JSON produced a
+real browser download with the correct recorded entries.
 
 ## Quickstart
 
@@ -79,14 +90,18 @@ This also starts Redis, used by the ingestion/generation job queue from a later 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...  # optional — without it, /story degrades to the
                                       # template fallback for every request (see Status above)
+export VITE_MAP_STYLE_URL=...        # optional — overrides the map's default (dev-only) style;
+                                      # see SOURCES.md's Milestone 4 update
 pnpm --filter @hereabouts/api dev    # API on :8787
 pnpm --filter @hereabouts/web dev    # web app on :5173, proxies /api to the API
 ```
 
 Open the web app, pick "Simulator" and a sample track (or "Live GPS" on a device with
-location), and press Start. The status bar shows the live-detected travel mode and speed; a
-text card appears — read aloud automatically — whenever `/feed` finds something nearby, drawing
-on whichever sources are reachable and falling back to the regional gap filler otherwise.
+location), optionally select topic filters or turn on the trip log, and press Start. The status
+bar shows the live-detected travel mode and speed; a map shows your position and nearby
+candidates; a text card appears — read aloud automatically — whenever `/feed` finds something
+nearby, drawing on whichever sources are reachable and falling back to the regional gap filler
+otherwise.
 
 ## Repo layout
 
@@ -94,7 +109,7 @@ on whichever sources are reachable and falling back to the regional gap filler o
 packages/
   core/         # pure domain logic: geometry, mode detection, H3 cell rounding, dedup/
                 # clustering, ranking, spatial-frame classification, grounding validators,
-                # GPX simulator. No I/O.
+                # topic classification, GPX simulator. No I/O.
   contracts/    # shared zod schemas (PlaceEvent, /feed request & response, Story, StoryRequest)
 services/
   adapters/

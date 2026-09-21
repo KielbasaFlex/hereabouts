@@ -1,4 +1,5 @@
 import type { DatePrecision, PlaceEvent } from "@hereabouts/contracts";
+import { classifyTopics } from "@hereabouts/core/topics";
 
 /**
  * Wikidata SPARQL (WDQS) adapter (PLAN.md §6, SOURCES.md §2).
@@ -217,7 +218,11 @@ export async function fetchNearbyItems(options: FetchNearbyItemsOptions): Promis
       sourceExcerpt: `${label}, per Wikidata, dates to ${eraText}.`,
       sourceUrl: `https://www.wikidata.org/wiki/${qid}`,
       license: "cc0",
-      topics: [],
+      // The synthesized summary is thin (label + era only) — the label
+      // itself is almost always where a Wikidata item's category shows up
+      // (e.g. "... Bridge", "... Mill"), so it's classified on its own
+      // rather than diluted by the boilerplate "per Wikidata, dates to" text.
+      topics: classifyTopics(label),
       // No sitelink-count lookup in this query (a second round-trip) — a
       // moderate constant until that enrichment is worth the extra call.
       notability: 0.4,

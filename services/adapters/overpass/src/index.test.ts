@@ -39,11 +39,13 @@ describe("fetchNearbyPlaces", () => {
     });
     expect(memorial?.sourceExcerpt).toContain("historic=monument");
     expect(memorial?.sourceExcerpt).not.toContain("1911"); // start_date isn't in our excerpt-building tag list
+    expect(memorial?.topics).toEqual(expect.arrayContaining(["military", "commemorative"]));
 
     const courthouse = places.find((p) => p.id === "osm:way/987654321");
     // Ways have no lat/lon of their own — `out center;` gives a computed centroid.
     expect(courthouse).toMatchObject({ lat: 27.9502, lon: -82.4561 });
     expect(courthouse?.sourceExcerpt).toContain("heritage designation of 2");
+    expect(courthouse?.topics).toContain("government-civic");
     // "en:Old Federal Courthouse (Tampa)" -> the lang prefix is stripped.
     expect(courthouse?.externalIds.wikipediaTitle).toBe("Old Federal Courthouse (Tampa)");
   });

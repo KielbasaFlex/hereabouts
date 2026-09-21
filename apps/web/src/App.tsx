@@ -1,15 +1,36 @@
 import type { PlaceEvent, Story } from "@hereabouts/contracts";
 import { parseGpx, type PositionSource } from "@hereabouts/core/sim";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { TopicId } from "@hereabouts/core/topics";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { fetchStory } from "./api";
 import { TextCard } from "./components/TextCard";
+import { TopicFilters } from "./components/TopicFilters";
+import { TripLogPanel } from "./components/TripLogPanel";
+import { downloadTextFile } from "./download";
 import { formatMode, formatSpeed } from "./format";
 import { useFeed } from "./hooks/useFeed";
 import { usePositionFix } from "./hooks/usePositionFix";
 import { LiveGeolocationSource } from "./position/liveGeolocationSource";
 import { SimulatedPositionSource } from "./position/simulatedSource";
 import { createSpeechController } from "./speech";
+import {
+  appendTripLogEntry,
+  clearTripLog,
+  isTripLogEnabled,
+  loadTripLog,
+  setTripLogEnabled,
+  tripLogToGeoJson,
+  tripLogToJson,
+  type TripLogEntry,
+} from "./tripLog";
+
+// maplibre-gl is a large dependency (~300KB gzipped) — loaded as its own
+// chunk only once the app actually starts, rather than blocking the initial
+// bundle for a component most of the shell (Start button, source picker)
+// doesn't need. See PLAN.md's bundle-size discipline precedent (Milestone 1's
+// h3-js subpath-export fix).
+const MapView = lazy(() => import("./components/MapView").then((m) => ({ default: m.MapView })));
 
 type SourceKind = "live" | "simulator";
 
@@ -36,18 +57,54 @@ export function App() {
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [storyLoading, setStoryLoading] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [selectedTopics, setSelectedTopics] = useState<ReadonlySet<TopicId>>(new Set());
+  const [tripLogEnabled, setTripLogEnabledState] = useState(() => isTripLogEnabled(window.localStorage));
+  const [tripLogEntries, setTripLogEntries] = useState<TripLogEntry[]>(() => loadTripLog(window.localStorage));
 
   const liveSourceRef = useRef<LiveGeolocationSource | null>(null);
   const simSourceRef = useRef<SimulatedPositionSource | null>(null);
   const lastSpokenIdRef = useRef<string | null>(null);
 
   const { fix, mode, smoothedSpeedMps } = usePositionFix(positionSource, 1000);
+  const topicsList = useMemo(() => [...selectedTopics], [selectedTopics]);
   const feed = useFeed(
     fix ? { lat: fix.lat, lon: fix.lon, headingDeg: fix.headingDeg, speedMps: fix.speedMps } : null,
     mode,
+    topicsList,
     5000,
   );
   const speech = useMemo(() => createSpeechController(), []);
+
+  function toggleTopic(topic: TopicId) {
+    setSelectedTopics((prev) => {
+      const next = new Set(prev);
+      if (next.has(topic)) next.delete(topic);
+      else next.add(topic);
+      return next;
+    });
+  }
+
+  function handleToggleTripLog(enabled: boolean) {
+    setTripLogEnabled(enabled, window.localStorage);
+    setTripLogEnabledState(enabled);
+  }
+
+  function handleExportTripLogJson() {
+    downloadTextFile("hereabouts-trip-log.json", tripLogToJson(tripLogEntries), "application/json");
+  }
+
+  function handleExportTripLogGeoJson() {
+    downloadTextFile(
+      "hereabouts-trip-log.geojson",
+      JSON.stringify(tripLogToGeoJson(tripLogEntries), null, 2),
+      "application/geo+json",
+    );
+  }
+
+  function handleClearTripLog() {
+    clearTripLog(window.localStorage);
+    setTripLogEntries([]);
+  }
 
   // As soon as the feed surfaces a new unheard place: mark it current, kick
   // off Milestone 3 generation, and speak whatever narration is actually
@@ -64,6 +121,16 @@ export function App() {
     setIsPaused(false);
     feed.markHeard(next.id);
     setStoryLoading(true);
+
+    // Trip log (PLAN.md §13): records the place actually heard, not the
+    // listener's live position — a clearer "what did I hear" map on export,
+    // and a smaller privacy footprint than a continuous position trail.
+    // No-ops silently if the trip log isn't enabled (tripLog.ts's own guard).
+    const updatedLog = appendTripLogEntry(
+      { placeId: next.id, title: next.title, heardAt: new Date().toISOString(), lat: next.lat, lon: next.lon },
+      window.localStorage,
+    );
+    setTripLogEntries(updatedLog);
 
     let cancelled = false;
     (async () => {
@@ -269,6 +336,11 @@ export function App() {
         {sourceKind === "live" && !LiveGeolocationSource.isSupported() && (
           <p className="app__error">This browser doesn&apos;t support geolocation.</p>
         )}
+
+        <div className="app__topic-filters">
+          <span className="app__topic-filters-label">Prefer hearing about:</span>
+          <TopicFilters selected={selectedTopics} onToggle={toggleTopic} />
+        </div>
       </section>
 
       {running && (
@@ -281,6 +353,12 @@ export function App() {
       )}
 
       <main className="app__main">
+        {running && (
+          <Suspense fallback={<div className="map-view map-view--loading">Loading map…</div>}>
+            <MapView position={fix ? { lat: fix.lat, lon: fix.lon } : null} places={feed.places} />
+          </Suspense>
+        )}
+
         {currentPlace ? (
           <TextCard
             place={currentPlace}
@@ -296,6 +374,15 @@ export function App() {
           running && <p className="app__waiting">Nothing nearby yet — listening for stories…</p>
         )}
       </main>
+
+      <TripLogPanel
+        enabled={tripLogEnabled}
+        onToggleEnabled={handleToggleTripLog}
+        entries={tripLogEntries}
+        onExportJson={handleExportTripLogJson}
+        onExportGeoJson={handleExportTripLogGeoJson}
+        onClear={handleClearTripLog}
+      />
     </div>
   );
 }
